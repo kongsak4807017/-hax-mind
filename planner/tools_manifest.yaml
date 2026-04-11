@@ -1,0 +1,21 @@
+tools:
+  - id: crawl4ai
+    repo: kongsak4807017/crawl4ai
+    role: web_to_markdown_ingestion
+    memory_use: Convert web pages and docs into clean Markdown for HAX-Mind memory.
+    default_phase: 2
+  - id: reverse_engineer
+    repo: kongsak4807017/Reverse-Engineer
+    role: blueprint_analysis
+    memory_use: Generate architecture blueprints from repos, local paths, and live websites.
+    default_phase: 2
+  - id: docmd
+    repo: kongsak4807017/docmd
+    role: documentation_context
+    memory_use: Generate static docs plus llms.txt/llms-full.txt for AI context.
+    default_phase: 2
+  - id: rtk
+    repo: kongsak4807017/rtk
+    role: token_compression
+    memory_use: Compress logs, command output, test output, and shell context.
+    default_phase: 1

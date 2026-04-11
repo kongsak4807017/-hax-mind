@@ -1,0 +1,1237 @@
+**ชื่อโปรเจกต์ (แนะนำ):**
+
+> **Project HAX-Mind**
+> *(Hybrid Agent eXecution + Memory Intelligence System)*
+
+
+
+# 📌 Executive Summary (ภาพรวมระบบ)
+
+**Project HAX-Mind คือระบบ AI Agent ส่วนตัวที่มีความสามารถ:**
+
+* วิเคราะห์ repo GitHub แบบ blueprint (OMX)
+* รับคำสั่งผ่าน Telegram (PicoClaw)
+* มี Memory ระยะยาวแบบ “Dreaming system”
+* พัฒนาตัวเองได้ (Self-Improvement Loop)
+* ทำงานอัตโนมัติกลางคืน (Overnight Employee)
+* รายงานผลตอนเช้า (Morning Intelligence)
+
+---
+
+# 🧠 Architecture Overview
+
+```text
+User (Telegram)
+    ↓
+PicoClaw (Gateway + Worker + Scheduler)
+    ↓
+OMX (Brain: Plan / Analyze / Code / Improve)
+    ↓
+Memory System (Dreaming + Knowledge)
+    ↓
+Test / Apply / Rollback
+    ↓
+Report → Telegram
+```
+
+---
+
+# 🖥️ PART 1: Setup บน Windows (Core Brain: OMX)
+
+## 1.1 ติดตั้ง Codex + OMX
+
+```bash
+npm install -g @openai/codex
+npm install -g oh-my-codex
+
+mkdir HAX-Mind
+cd HAX-Mind
+
+omx setup
+```
+
+เปิดใช้งาน:
+
+```bash
+codex
+omx --madmax --high
+```
+
+---
+
+## 1.2 โครงสร้างโปรเจกต์หลัก
+
+```text
+HAX-Mind/
+├── planner/        # OMX logic (skills, missions)
+├── workspace/      # repo / code
+├── memory/         # memory system
+├── runtime/        # proposals, logs
+├── bot/            # telegram
+├── engine/         # AI logic
+├── tests/          # test system
+├── policies/       # guardrails
+└── jobs/           # cron jobs
+```
+
+---
+
+# 📱 PART 2: Setup PicoClaw (Termux / Worker)
+
+```bash
+pkg update && pkg upgrade -y
+pkg install git nodejs python -y
+
+git clone https://github.com/sipeed/picoclaw.git
+cd picoclaw
+./picoclaw-linux-arm64
+```
+
+---
+
+# 🤖 PART 3: Telegram Bot (Command Center)
+
+## Environment
+
+```bash
+export TELEGRAM_BOT_TOKEN=YOUR_TOKEN
+```
+
+Run:
+
+```bash
+python bot/telegram_bot.py
+```
+
+---
+
+## Command ที่ใช้จริง
+
+```text
+/improve
+/review
+/analyze repo <url>
+/proposals
+/approve <id>
+/rollback <id>
+/report
+/nightly now
+/morning now
+```
+
+---
+
+# 🧠 PART 4: Memory System (Dreaming Model)
+
+## 4.1 Memory Layers
+
+```text
+memory/
+├── raw_logs/
+├── daily_summaries/
+├── topic_summaries/
+├── canonical/
+├── dreams.md
+└── embeddings/
+```
+
+---
+
+## 4.2 Dreaming System (Inspired by OpenClaw)
+
+### Light Sleep
+
+* คัด memory สำคัญ
+
+### Deep Sleep
+
+* promote → memory ถาวร
+
+### REM
+
+* สกัด insight เช่น:
+
+  * pattern
+  * decision
+  * strategy
+
+---
+
+## 4.3 Cron Jobs
+
+```bash
+# 02:00 Dreaming
+0 2 * * * python engine/memory_analyzer.py
+
+# 07:00 Report
+0 7 * * * python engine/morning_report.py
+```
+
+---
+
+# 🔁 PART 5: Self-Improvement System
+
+## Loop
+
+```text
+Analyze → Propose → Approve → Implement → Test → Apply → Learn
+```
+
+---
+
+## Example Command
+
+```text
+/improve memory system
+```
+
+System จะ:
+
+1. วิเคราะห์ log
+2. หา pain point
+3. สร้าง proposal
+4. รอ approve
+5. patch code
+6. test
+7. deploy
+
+---
+
+# 🔬 PART 6: Use Case หลัก (งานเด่น)
+
+## 6.1 Reverse Engineer GitHub
+
+```text
+/analyze repo https://github.com/xxx
+```
+
+Output:
+
+* architecture map
+* module inventory
+* runtime flow
+* blueprompt
+* rebuild plan
+
+---
+
+## 6.2 AI R&D Team
+
+cron:
+
+```text
+09:00 → วิเคราะห์
+17:00 → debate
+```
+
+ผลลัพธ์:
+
+* strategic memo
+* recommendation
+* new idea
+
+---
+
+## 6.3 Trending Intelligence
+
+ดึงจาก:
+
+* X
+* Reddit
+* YouTube
+
+→ ส่ง alert เข้า Telegram
+
+---
+
+## 6.4 Overnight Employee
+
+```text
+02:00:
+- อ่าน memory
+- หา 1 improvement
+- implement
+```
+
+---
+
+## 6.5 Morning Report
+
+```text
+07:00:
+- summary งานเมื่อคืน
+- proposal ใหม่
+- system health
+```
+
+---
+
+# ⚙️ PART 7: Guardrails (สำคัญมาก)
+
+## Risk Policy
+
+```yaml
+low:
+  auto_apply: true
+
+medium:
+  require_approval: true
+
+high:
+  manual_review: true
+```
+
+---
+
+## ห้าม AI ทำ
+
+```text
+- แก้ .env
+- ลบระบบ memory
+- ปิด test
+- ปิด rollback
+```
+
+---
+
+# 🧪 PART 8: Test System
+
+```bash
+pytest tests/
+```
+
+---
+
+# 🔄 PART 9: Rollback
+
+```text
+/rollback <proposal_id>
+```
+
+→ restore backup อัตโนมัติ
+
+---
+
+# 🚀 PART 10: Workflow จริง
+
+## กลางวัน
+
+```text
+คุณ:
+"analyze OMX repo"
+
+→ AI วิเคราะห์ + จำ
+```
+
+---
+
+## เย็น
+
+```text
+R&D วิเคราะห์ insight
+```
+
+---
+
+## กลางคืน
+
+```text
+AI:
+- improve system
+- optimize memory
+```
+
+---
+
+## เช้า
+
+```text
+คุณ:
+เปิด Telegram
+
+→ ได้ report พร้อม action
+```
+
+---
+
+# 🧠 Insight ระดับสูง
+
+ระบบนี้คือ:
+
+> ❌ ไม่ใช่ chatbot
+> ❌ ไม่ใช่ script automation
+
+แต่คือ:
+
+> ✅ **Personal AI Operating System**
+
+---
+
+# 📌 จุดแข็งของระบบนี้
+
+* คิดเอง (OMX)
+* ทำงานเอง (PicoClaw)
+* จำเอง (Memory Dreaming)
+* พัฒนาเอง (Self-Improve)
+* รายงานเอง (Report Loop)
+
+---
+
+# 🎯 Roadmap ต่อ
+
+## Phase 1 (คุณกำลังอยู่)
+
+* OMX + Telegram + Memory
+
+## Phase 2
+
+* PicoClaw worker
+* cron automation
+
+## Phase 3
+
+* RAG + vector DB
+* multi-agent team
+
+## Phase 4
+
+* VPS deployment
+* 24/7 AI assistant
+
+---
+
+# ✔️ สรุปสุดท้าย
+
+> **Project HAX-Mind = ระบบ AI Agent ส่วนตัว ที่คิด ทำ จำ และพัฒนาตัวเองได้**
+
+คุณสามารถ:
+
+* สั่งทุกอย่างผ่าน Telegram
+* ให้ AI วิเคราะห์ repo
+* ให้ AI พัฒนาระบบตัวเอง
+* ให้ AI ทำงานตอนคุณนอน
+* ตื่นมาแล้วมี progress ทุกวัน
+
+---
+
+**สรุป:**
+ด้านล่างคือ **Script install ทั้งระบบบน Windows** สำหรับโปรเจกต์ที่รวม
+
+* **OMX / Codex CLI** เป็นสมองหลัก
+* **Telegram Bot** เป็น command center
+* **Memory system** สำหรับ raw log / summary / canonical
+* **Self-improvement loop**
+* **Nightly job / Morning report**
+* **Smoke tests / rollback-ready structure**
+
+สคริปต์นี้จะทำให้คุณได้โครงระบบพร้อมใช้งานในโฟลเดอร์เดียว เหลือเพียง
+
+* ล็อกอิน Codex/OMX เอง
+* ใส่ `TELEGRAM_BOT_TOKEN`
+* เปิดรัน bot และ scheduled tasks
+
+---
+
+# 1) วิธีใช้
+
+เปิด **PowerShell แบบ Run as Administrator** แล้วรันทีละส่วนนี้
+
+## 1.1 อนุญาตสคริปต์ชั่วคราว
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+```
+
+## 1.2 สร้างไฟล์ติดตั้ง
+
+คัดลอกโค้ดด้านล่างไปบันทึกเป็นไฟล์ชื่อ
+
+```text
+install-hax-mind.ps1
+```
+
+แล้วรัน:
+
+```powershell
+.\install-hax-mind.ps1
+```
+
+---
+
+# 2) PowerShell install script ทั้งระบบ
+
+```powershell
+param(
+    [string]$ProjectRoot = "$HOME\HAX-Mind"
+)
+
+$ErrorActionPreference = "Stop"
+
+function Write-Step($msg) {
+    Write-Host "`n=== $msg ===" -ForegroundColor Cyan
+}
+
+function Ensure-Command($cmd, $installHint) {
+    if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
+        Write-Host "Missing command: $cmd" -ForegroundColor Yellow
+        Write-Host "Please install it first: $installHint" -ForegroundColor Yellow
+        exit 1
+    }
+}
+
+function New-TextFile($path, $content) {
+    $dir = Split-Path $path -Parent
+    if ($dir -and -not (Test-Path $dir)) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
+    Set-Content -Path $path -Value $content -Encoding UTF8
+}
+
+Write-Step "Checking prerequisites"
+Ensure-Command "python" "Install Python 3.11+"
+Ensure-Command "pip" "Install Python with pip"
+Ensure-Command "node" "Install Node.js 20+"
+Ensure-Command "npm" "Install Node.js 20+"
+Ensure-Command "git" "Install Git for Windows"
+
+Write-Step "Creating project structure"
+$folders = @(
+    "$ProjectRoot\bot",
+    "$ProjectRoot\engine",
+    "$ProjectRoot\memory\raw_logs",
+    "$ProjectRoot\memory\daily_summaries",
+    "$ProjectRoot\memory\topic_summaries",
+    "$ProjectRoot\memory\canonical\decisions",
+    "$ProjectRoot\memory\canonical\repo_knowledge",
+    "$ProjectRoot\memory\canonical\design_patterns",
+    "$ProjectRoot\memory\indexes",
+    "$ProjectRoot\runtime\proposals",
+    "$ProjectRoot\runtime\approved",
+    "$ProjectRoot\runtime\rejected",
+    "$ProjectRoot\runtime\applied",
+    "$ProjectRoot\runtime\failed",
+    "$ProjectRoot\runtime\backups",
+    "$ProjectRoot\runtime\logs",
+    "$ProjectRoot\runtime\reports",
+    "$ProjectRoot\planner\skills",
+    "$ProjectRoot\planner\missions",
+    "$ProjectRoot\planner\templates",
+    "$ProjectRoot\workspace\repo",
+    "$ProjectRoot\workspace\temp",
+    "$ProjectRoot\policies",
+    "$ProjectRoot\tests",
+    "$ProjectRoot\state",
+    "$ProjectRoot\jobs"
+)
+
+foreach ($folder in $folders) {
+    New-Item -ItemType Directory -Force -Path $folder | Out-Null
+}
+
+Write-Step "Creating Python virtual environment"
+Set-Location $ProjectRoot
+python -m venv .venv
+
+$venvPython = "$ProjectRoot\.venv\Scripts\python.exe"
+$venvPip = "$ProjectRoot\.venv\Scripts\pip.exe"
+
+Write-Step "Installing Python packages"
+& $venvPip install --upgrade pip
+& $venvPip install python-telegram-bot==21.6 pytest pyyaml
+
+Write-Step "Installing Codex CLI and OMX"
+npm install -g @openai/codex
+npm install -g oh-my-codex
+
+Write-Step "Writing requirements.txt"
+New-TextFile "$ProjectRoot\requirements.txt" @'
+python-telegram-bot==21.6
+pytest
+pyyaml
+'@
+
+Write-Step "Writing .env.example"
+New-TextFile "$ProjectRoot\.env.example" @'
+TELEGRAM_BOT_TOKEN=PUT_YOUR_BOT_TOKEN_HERE
+'@
+
+Write-Step "Writing README-START.txt"
+New-TextFile "$ProjectRoot\README-START.txt" @'
+HAX-Mind Windows Setup
+
+1. Copy .env.example to .env and put your Telegram bot token.
+2. Activate venv:
+   .\.venv\Scripts\Activate.ps1
+3. Run OMX setup once:
+   omx setup
+4. Login Codex if needed:
+   codex
+5. Start bot:
+   .\.venv\Scripts\python.exe bot\telegram_bot.py
+6. Run tests:
+   .\.venv\Scripts\python.exe -m pytest tests
+7. Trigger nightly job manually:
+   .\.venv\Scripts\python.exe jobs\nightly_job.py
+8. Trigger morning report manually:
+   .\.venv\Scripts\python.exe jobs\morning_job.py
+'@
+
+Write-Step "Writing policies"
+New-TextFile "$ProjectRoot\policies\risk_policy.yaml" @'
+risk_levels:
+  low:
+    auto_apply: true
+    require_tests: true
+    require_backup: true
+  medium:
+    auto_apply: false
+    require_tests: true
+    require_backup: true
+    require_approval: true
+  high:
+    auto_apply: false
+    require_tests: true
+    require_backup: true
+    require_approval: true
+    require_manual_review: true
+
+protected_paths:
+  - ".git/"
+  - ".env"
+  - "credentials/"
+  - "secrets/"
+  - "prod/"
+'@
+
+New-TextFile "$ProjectRoot\policies\improve_policy.yaml" @'
+max_proposals_per_night: 1
+max_auto_apply_per_day: 1
+cooldown_hours_after_failure: 12
+
+forbidden_actions:
+  - delete_entire_memory_store
+  - modify_credentials
+  - disable_test_runner
+  - disable_rollback
+  - self_remove_guardrails
+'@
+
+New-TextFile "$ProjectRoot\policies\retention.yaml" @'
+raw_logs:
+  keep_days: 30
+  archive_after_days: 7
+
+daily_summaries:
+  keep_days: 180
+
+topic_summaries:
+  keep_days: 9999
+
+canonical_memory:
+  max_records: 5000
+
+repo_artifacts:
+  temp_scan_keep_days: 14
+  final_reports_keep_days: 9999
+'@
+
+Write-Step "Writing state files"
+New-TextFile "$ProjectRoot\state\system_state.json" @'
+{
+  "system_name": "HAX-Mind",
+  "version": "0.1.0",
+  "mode": "safe",
+  "last_improvement": null,
+  "last_report": null
+}
+'@
+
+Write-Step "Writing Python modules"
+
+New-TextFile "$ProjectRoot\engine\utils.py" @'
+from pathlib import Path
+import os
+
+ROOT = Path(__file__).resolve().parent.parent
+
+def ensure_dir(path: Path):
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+def read_env_file():
+    env_path = ROOT / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip())
+'@
+
+New-TextFile "$ProjectRoot\bot\command_parser.py" @'
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class Command:
+    action: str
+    target: Optional[str] = None
+    args: Optional[str] = None
+
+def parse_command(text: str) -> Command:
+    text = text.strip()
+    if not text.startswith("/"):
+        return Command(action="message", args=text)
+    parts = text.split(maxsplit=2)
+    action = parts[0][1:]
+    target = parts[1] if len(parts) > 1 else None
+    args = parts[2] if len(parts) > 2 else None
+    return Command(action=action, target=target, args=args)
+'@
+
+New-TextFile "$ProjectRoot\engine\proposal_engine.py" @'
+import json
+import uuid
+from datetime import datetime
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PROPOSALS_DIR = ROOT / "runtime" / "proposals"
+PROPOSALS_DIR.mkdir(parents=True, exist_ok=True)
+
+def create_proposal(
+    title: str,
+    component: str,
+    problem: str,
+    root_cause: str,
+    solution: str,
+    expected_impact: str,
+    risk: str,
+    files_to_modify: list[str],
+    tests_to_run: list[str],
+    rollback_plan: str
+) -> dict:
+    proposal = {
+        "id": f"prop_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}",
+        "created_at": datetime.now().isoformat(),
+        "title": title,
+        "component": component,
+        "problem": problem,
+        "root_cause": root_cause,
+        "solution": solution,
+        "expected_impact": expected_impact,
+        "risk": risk,
+        "files_to_modify": files_to_modify,
+        "tests_to_run": tests_to_run,
+        "rollback_plan": rollback_plan,
+        "status": "pending"
+    }
+    path = PROPOSALS_DIR / f"{proposal['id']}.json"
+    path.write_text(json.dumps(proposal, indent=2, ensure_ascii=False), encoding="utf-8")
+    return proposal
+'@
+
+New-TextFile "$ProjectRoot\engine\memory_analyzer.py" @'
+import json
+from pathlib import Path
+from datetime import datetime
+
+ROOT = Path(__file__).resolve().parent.parent
+RAW_LOG_DIR = ROOT / "memory" / "raw_logs"
+SUMMARY_DIR = ROOT / "memory" / "daily_summaries"
+TOPIC_DIR = ROOT / "memory" / "topic_summaries"
+
+for d in [RAW_LOG_DIR, SUMMARY_DIR, TOPIC_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+
+def log_event(event_type: str, content: str, topic: str = "general", importance: str = "normal"):
+    path = RAW_LOG_DIR / f"{datetime.now().date()}.log"
+    item = {
+        "timestamp": datetime.now().isoformat(),
+        "type": event_type,
+        "topic": topic,
+        "importance": importance,
+        "content": content
+    }
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+def summarize_today() -> str:
+    src = RAW_LOG_DIR / f"{datetime.now().date()}.log"
+    dst = SUMMARY_DIR / f"{datetime.now().date()}.md"
+    if not src.exists():
+        text = f"# Daily Summary: {datetime.now().date()}\n\nNo events found.\n"
+        dst.write_text(text, encoding="utf-8")
+        return text
+
+    items = []
+    for line in src.read_text(encoding="utf-8", errors="ignore").splitlines():
+        try:
+            items.append(json.loads(line))
+        except Exception:
+            continue
+
+    lines = [f"# Daily Summary: {datetime.now().date()}", "", "## Highlights"]
+    for item in items[:30]:
+        lines.append(f"- [{item.get('topic','general')}] {item.get('content','')[:200]}")
+    text = "\n".join(lines) + "\n"
+    dst.write_text(text, encoding="utf-8")
+    return text
+'@
+
+New-TextFile "$ProjectRoot\engine\self_improvement_engine.py" @'
+from engine.proposal_engine import create_proposal
+
+def analyze_system_signals() -> dict:
+    return {
+        "top_problem": "memory retrieval too noisy",
+        "component": "memory",
+        "evidence": [
+            "Repeated interest in repo knowledge retention",
+            "Need better topic clustering for Telegram-driven study flow"
+        ]
+    }
+
+def generate_improvement_proposal() -> dict:
+    signals = analyze_system_signals()
+    if signals["component"] == "memory":
+        return create_proposal(
+            title="Improve memory topic clustering",
+            component="memory",
+            problem="Memory retrieval includes unrelated items.",
+            root_cause="Topic clustering and promotion rules are still minimal.",
+            solution="Add topic tagging and stronger topic summaries before retrieval.",
+            expected_impact="Better repo and design recall with lower prompt noise.",
+            risk="medium",
+            files_to_modify=[
+                "engine/memory_analyzer.py",
+                "engine/self_improvement_engine.py"
+            ],
+            tests_to_run=[
+                "tests/test_smoke.py::test_memory_dirs",
+                "tests/test_smoke.py::test_runtime_dirs"
+            ],
+            rollback_plan="Restore backup and revert modified files."
+        )
+
+    return create_proposal(
+        title="General cleanup",
+        component="system",
+        problem="System drift detected.",
+        root_cause="Accumulated temporary files and broad memory scope.",
+        solution="Refine cleanup and retention rules.",
+        expected_impact="Lower disk usage and cleaner retrieval.",
+        risk="low",
+        files_to_modify=["policies/retention.yaml"],
+        tests_to_run=["tests/test_smoke.py::test_runtime_dirs"],
+        rollback_plan="Restore previous retention policy."
+    )
+'@
+
+New-TextFile "$ProjectRoot\engine\test_runner.py" @'
+import subprocess
+import sys
+
+def run_tests(test_targets: list[str]) -> dict:
+    results = []
+    all_passed = True
+    for target in test_targets:
+        cmd = [sys.executable, "-m", "pytest", target]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        passed = proc.returncode == 0
+        all_passed = all_passed and passed
+        results.append({
+            "target": target,
+            "passed": passed,
+            "stdout": proc.stdout[-4000:],
+            "stderr": proc.stderr[-4000:]
+        })
+    return {"all_passed": all_passed, "results": results}
+'@
+
+New-TextFile "$ProjectRoot\engine\apply_engine.py" @'
+import json
+import shutil
+from pathlib import Path
+from datetime import datetime
+
+ROOT = Path(__file__).resolve().parent.parent
+PROPOSALS_DIR = ROOT / "runtime" / "proposals"
+APPLIED_DIR = ROOT / "runtime" / "applied"
+FAILED_DIR = ROOT / "runtime" / "failed"
+BACKUP_DIR = ROOT / "runtime" / "backups"
+
+for d in [APPLIED_DIR, FAILED_DIR, BACKUP_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+
+def backup_files(files_to_modify: list[str], proposal_id: str) -> Path:
+    backup_root = BACKUP_DIR / proposal_id
+    backup_root.mkdir(parents=True, exist_ok=True)
+    for file_path in files_to_modify:
+        src = ROOT / file_path
+        if src.exists() and src.is_file():
+            dst = backup_root / file_path
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+    return backup_root
+
+def apply_placeholder_change(proposal: dict) -> dict:
+    return {
+        "applied": True,
+        "summary": f"Placeholder apply completed for {proposal['title']}"
+    }
+
+def mark_status(proposal: dict, new_status: str):
+    proposal["status"] = new_status
+    path = PROPOSALS_DIR / f"{proposal['id']}.json"
+    path.write_text(json.dumps(proposal, indent=2, ensure_ascii=False), encoding="utf-8")
+
+def apply_proposal(proposal: dict) -> dict:
+    backup_root = backup_files(proposal["files_to_modify"], proposal["id"])
+    result = apply_placeholder_change(proposal)
+    if result["applied"]:
+        mark_status(proposal, "applied")
+        (APPLIED_DIR / f"{proposal['id']}.txt").write_text(
+            f"{datetime.now().isoformat()}\n{result['summary']}\nBackup: {backup_root}",
+            encoding="utf-8"
+        )
+    else:
+        mark_status(proposal, "failed")
+        (FAILED_DIR / f"{proposal['id']}.txt").write_text(
+            f"{datetime.now().isoformat()}\nApply failed\nBackup: {backup_root}",
+            encoding="utf-8"
+        )
+    return result
+'@
+
+New-TextFile "$ProjectRoot\engine\rollback_engine.py" @'
+import shutil
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+BACKUP_DIR = ROOT / "runtime" / "backups"
+
+def rollback_proposal(proposal_id: str) -> dict:
+    backup_root = BACKUP_DIR / proposal_id
+    if not backup_root.exists():
+        return {"ok": False, "message": "Backup not found"}
+
+    restored = 0
+    for file in backup_root.rglob("*"):
+        if file.is_file():
+            rel = file.relative_to(backup_root)
+            dst = ROOT / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(file, dst)
+            restored += 1
+
+    return {"ok": True, "message": f"Restored {restored} files"}
+'@
+
+New-TextFile "$ProjectRoot\engine\morning_report.py" @'
+import json
+from pathlib import Path
+from datetime import datetime
+
+ROOT = Path(__file__).resolve().parent.parent
+PROPOSALS_DIR = ROOT / "runtime" / "proposals"
+APPLIED_DIR = ROOT / "runtime" / "applied"
+FAILED_DIR = ROOT / "runtime" / "failed"
+REPORTS_DIR = ROOT / "runtime" / "reports"
+
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+def generate_morning_report() -> str:
+    proposals = list(PROPOSALS_DIR.glob("*.json"))
+    applied = list(APPLIED_DIR.glob("*.txt"))
+    failed = list(FAILED_DIR.glob("*.txt"))
+
+    lines = [
+        f"Morning Report — {datetime.now().isoformat()}",
+        "",
+        f"Pending proposals: {len(proposals)}",
+        f"Applied changes: {len(applied)}",
+        f"Failed changes: {len(failed)}",
+        "",
+        "Recommended next action:",
+        "- Review pending proposals and approve the highest-impact medium-risk item."
+    ]
+    text = "\n".join(lines)
+    (REPORTS_DIR / "morning_report.txt").write_text(text, encoding="utf-8")
+    return text
+'@
+
+New-TextFile "$ProjectRoot\jobs\nightly_job.py" @'
+from engine.self_improvement_engine import generate_improvement_proposal
+from engine.memory_analyzer import summarize_today
+
+if __name__ == "__main__":
+    summarize_today()
+    proposal = generate_improvement_proposal()
+    print(f"Nightly proposal created: {proposal['id']}")
+'@
+
+New-TextFile "$ProjectRoot\jobs\morning_job.py" @'
+from engine.morning_report import generate_morning_report
+
+if __name__ == "__main__":
+    print(generate_morning_report())
+'@
+
+New-TextFile "$ProjectRoot\bot\telegram_bot.py" @'
+import json
+import os
+from pathlib import Path
+
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+
+from engine.utils import read_env_file
+from engine.self_improvement_engine import generate_improvement_proposal
+from engine.morning_report import generate_morning_report
+from engine.rollback_engine import rollback_proposal
+from engine.memory_analyzer import log_event
+
+ROOT = Path(__file__).resolve().parent.parent
+PROPOSALS_DIR = ROOT / "runtime" / "proposals"
+
+read_env_file()
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "HAX-Mind ready.\nCommands: /status /improve /proposals /approve <id> /reject <id> /rollback <id> /morning"
+    )
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    count = len(list(PROPOSALS_DIR.glob("*.json")))
+    await update.message.reply_text(f"System OK\nPending proposals: {count}")
+
+async def improve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    log_event("command", "/improve", topic="self_improvement", importance="high")
+    proposal = generate_improvement_proposal()
+    msg = (
+        f"Proposal created\n"
+        f"ID: {proposal['id']}\n"
+        f"Title: {proposal['title']}\n"
+        f"Risk: {proposal['risk']}\n"
+        f"Problem: {proposal['problem']}\n"
+        f"Solution: {proposal['solution']}"
+    )
+    await update.message.reply_text(msg)
+
+async def proposals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    files = list(PROPOSALS_DIR.glob("*.json"))
+    if not files:
+        await update.message.reply_text("No proposals.")
+        return
+
+    lines = []
+    for file in files[-10:]:
+        p = json.loads(file.read_text(encoding="utf-8"))
+        lines.append(f"{p['id']} | {p['risk']} | {p['title']} | {p['status']}")
+    await update.message.reply_text("\n".join(lines))
+
+async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /approve <proposal_id>")
+        return
+    pid = context.args[0]
+    path = PROPOSALS_DIR / f"{pid}.json"
+    if not path.exists():
+        await update.message.reply_text("Proposal not found")
+        return
+    p = json.loads(path.read_text(encoding="utf-8"))
+    p["status"] = "approved"
+    path.write_text(json.dumps(p, indent=2, ensure_ascii=False), encoding="utf-8")
+    log_event("approval", pid, topic="self_improvement", importance="high")
+    await update.message.reply_text(f"Approved: {pid}")
+
+async def reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /reject <proposal_id>")
+        return
+    pid = context.args[0]
+    path = PROPOSALS_DIR / f"{pid}.json"
+    if not path.exists():
+        await update.message.reply_text("Proposal not found")
+        return
+    p = json.loads(path.read_text(encoding="utf-8"))
+    p["status"] = "rejected"
+    path.write_text(json.dumps(p, indent=2, ensure_ascii=False), encoding="utf-8")
+    await update.message.reply_text(f"Rejected: {pid}")
+
+async def morning(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = generate_morning_report()
+    await update.message.reply_text(text)
+
+async def rollback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /rollback <proposal_id>")
+        return
+    result = rollback_proposal(context.args[0])
+    await update.message.reply_text(result["message"])
+
+def main():
+    if not TOKEN:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN not found. Put it in .env")
+
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("improve", improve))
+    app.add_handler(CommandHandler("proposals", proposals))
+    app.add_handler(CommandHandler("approve", approve))
+    app.add_handler(CommandHandler("reject", reject))
+    app.add_handler(CommandHandler("rollback", rollback))
+    app.add_handler(CommandHandler("morning", morning))
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
+'@
+
+New-TextFile "$ProjectRoot\tests\test_smoke.py" @'
+from pathlib import Path
+
+def test_memory_dirs():
+    assert Path("memory").exists()
+    assert Path("memory/raw_logs").exists()
+    assert Path("memory/daily_summaries").exists()
+
+def test_runtime_dirs():
+    assert Path("runtime").exists()
+    assert Path("runtime/proposals").exists()
+    assert Path("runtime/reports").exists()
+'@
+
+Write-Step "Writing helper scripts"
+New-TextFile "$ProjectRoot\run-bot.ps1" @"
+Set-ExecutionPolicy -Scope Process Bypass
+& "$ProjectRoot\.venv\Scripts\python.exe" "$ProjectRoot\bot\telegram_bot.py"
+"@
+
+New-TextFile "$ProjectRoot\run-tests.ps1" @"
+Set-ExecutionPolicy -Scope Process Bypass
+Set-Location "$ProjectRoot"
+& "$ProjectRoot\.venv\Scripts\python.exe" -m pytest tests
+"@
+
+New-TextFile "$ProjectRoot\run-nightly.ps1" @"
+Set-ExecutionPolicy -Scope Process Bypass
+Set-Location "$ProjectRoot"
+& "$ProjectRoot\.venv\Scripts\python.exe" jobs\nightly_job.py
+"@
+
+New-TextFile "$ProjectRoot\run-morning.ps1" @"
+Set-ExecutionPolicy -Scope Process Bypass
+Set-Location "$ProjectRoot"
+& "$ProjectRoot\.venv\Scripts\python.exe" jobs\morning_job.py
+"@
+
+Write-Step "Running smoke tests"
+Set-Location $ProjectRoot
+& $venvPython -m pytest tests
+
+Write-Step "Creating Windows Scheduled Tasks"
+$nightlyAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -File `"$ProjectRoot\run-nightly.ps1`""
+$nightlyTrigger = New-ScheduledTaskTrigger -Daily -At 2:00AM
+Register-ScheduledTask -TaskName "HAX-Mind-Nightly" -Action $nightlyAction -Trigger $nightlyTrigger -Description "HAX-Mind nightly improvement job" -Force | Out-Null
+
+$morningAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -File `"$ProjectRoot\run-morning.ps1`""
+$morningTrigger = New-ScheduledTaskTrigger -Daily -At 7:00AM
+Register-ScheduledTask -TaskName "HAX-Mind-Morning" -Action $morningAction -Trigger $morningTrigger -Description "HAX-Mind morning report job" -Force | Out-Null
+
+Write-Step "Done"
+Write-Host "Project installed at: $ProjectRoot" -ForegroundColor Green
+Write-Host "Next steps:" -ForegroundColor Green
+Write-Host "1. Copy .env.example to .env and set TELEGRAM_BOT_TOKEN"
+Write-Host "2. Run: omx setup"
+Write-Host "3. Run: codex"
+Write-Host "4. Start bot with: .\run-bot.ps1"
+Write-Host "5. Test: .\run-tests.ps1"
+```
+
+---
+
+# 3) หลังติดตั้งเสร็จ ให้ทำต่อทันที
+
+## 3.1 สร้าง `.env`
+
+ในโฟลเดอร์โปรเจกต์ ให้คัดลอก `.env.example` เป็น `.env`
+
+ตัวอย่าง:
+
+```text
+TELEGRAM_BOT_TOKEN=123456789:YOUR_REAL_BOT_TOKEN
+```
+
+## 3.2 รัน OMX setup
+
+```powershell
+cd $HOME\HAX-Mind
+omx setup
+```
+
+## 3.3 ล็อกอิน Codex
+
+```powershell
+codex
+```
+
+## 3.4 เปิด Telegram bot
+
+```powershell
+.\run-bot.ps1
+```
+
+---
+
+# 4) คำสั่ง Telegram ที่ใช้ได้ทันที
+
+```text
+/start
+/status
+/improve
+/proposals
+/approve <proposal_id>
+/reject <proposal_id>
+/rollback <proposal_id>
+/morning
+```
+
+---
+
+# 5) สิ่งที่สคริปต์นี้ “ทำแล้ว” และ “ยังไม่ได้ทำ”
+
+**ทำแล้ว**
+
+* สร้างโครงโปรเจกต์ครบ
+* ติดตั้ง Python packages
+* ติดตั้ง Codex CLI + OMX
+* สร้าง memory/runtime/test/policy files
+* สร้าง Telegram bot
+* สร้าง nightly/morning jobs
+* สร้าง Windows Scheduled Tasks
+* รัน smoke tests
+
+**ยังต้องทำเอง**
+
+* ใส่ Telegram bot token
+* ล็อกอิน Codex
+* ตั้งค่า OMX profile ที่ต้องการ
+* ปรับ logic การ apply patch ให้เชื่อมกับ OMX จริง
+
+ตอนนี้ `apply_engine.py` ยังเป็น **placeholder apply** เพื่อให้ระบบปลอดภัยก่อน ยังไม่ได้ให้ AI แก้ไฟล์จริงอัตโนมัติ
+
+---
+
+Script เชื่อม OMX ให้สร้าง patch จริง
+ระบบ analyze repo GitHub ผ่าน Telegram
+memory promotion แบบ Light / Deep / REM
+self-improvement ที่ auto-apply เฉพาะ low-risk
+dashboard สรุปสถานะระบบบน Windows
+
+

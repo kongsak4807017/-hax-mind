@@ -1,0 +1,10 @@
+max_proposals_per_night: 1
+max_auto_apply_per_day: 1
+cooldown_hours_after_failure: 12
+
+forbidden_actions:
+  - delete_entire_memory_store
+  - modify_credentials
+  - disable_test_runner
+  - disable_rollback
+  - self_remove_guardrails

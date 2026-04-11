@@ -1,0 +1,24 @@
+risk_levels:
+  low:
+    auto_apply: true
+    require_tests: true
+    require_backup: true
+  medium:
+    auto_apply: false
+    require_tests: true
+    require_backup: true
+    require_approval: true
+  high:
+    auto_apply: false
+    require_tests: true
+    require_backup: true
+    require_approval: true
+    require_manual_review: true
+
+protected_paths:
+  - ".git/"
+  - ".env"
+  - "credentials/"
+  - "secrets/"
+  - "prod/"
+  - "memory/canonical/"

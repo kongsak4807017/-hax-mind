@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Secrets
+.env
+*.env
+.env.txt
+env.txt
+credentials/
+secrets/
+
+# Runtime outputs
+.omx/
+memory/
+runtime/
+state/
+workspace/
+
+# Node / tooling
+node_modules/
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

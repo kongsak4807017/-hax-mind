@@ -1,0 +1,19 @@
+raw_logs:
+  keep_days: 30
+  archive_after_days: 7
+
+raw_sources:
+  keep_days: 90
+
+daily_summaries:
+  keep_days: 180
+
+topic_summaries:
+  keep_days: 9999
+
+canonical_memory:
+  max_records: 5000
+
+repo_artifacts:
+  temp_scan_keep_days: 14
+  final_reports_keep_days: 9999
