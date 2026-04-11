@@ -1,5 +1,12 @@
 # HAX-Mind
 
+[![Local Production](https://img.shields.io/badge/local%20production-ready-2ea043)](docs/cto-handoff-status.md)
+[![Tests](https://img.shields.io/badge/tests-50%20passed-2ea043)](docs/cto-handoff-status.md)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4)](#local-always-on-status-on-this-machine)
+[![Python](https://img.shields.io/badge/python-3.12-blue)](requirements.txt)
+[![Telegram](https://img.shields.io/badge/control-Telegram-26A5E4)](#telegram-commands)
+[![License](https://img.shields.io/badge/license-private-lightgrey)](#ready-for-github)
+
 HAX-Mind is a **local AI operating system for Windows** that uses **Telegram as the command center**, **Codex/OMX-style workflows as the brain**, and a **file-first memory system** as the durable knowledge layer.
 
 It is designed to:
