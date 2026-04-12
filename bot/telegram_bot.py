@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+import asyncio
+import ctypes
 import os
 import sys
 from pathlib import Path
@@ -7,11 +9,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 from engine.auth import auth_status_for_user, is_authorized_user
 from engine.github_ingestor import ingest_all_tools
-from engine.dreaming import memory_status, remember_text, run_dream_cycle
+from engine.dreaming import explain_dream, get_dream, latest_dream, memory_status, remember_text, run_dream_cycle
+from engine.dream_tasks import create_task_from_dream
 from engine.local_health import render_local_health_summary
 from engine.memory_analyzer import log_event, summarize_today
 from engine.memory_intelligence import cluster_topics, hybrid_recall, list_decisions, run_phase3_cycle
@@ -26,10 +29,28 @@ from engine.mission_engine import (
 from engine.picoclaw_manager import list_remote_jobs, picoclaw_plan, picoclaw_status, queue_proposal_for_remote_safe_execution
 from engine.proposal_engine import list_proposals, update_proposal_status
 from engine.apply_engine import execute_proposal_safe
+from engine.cli_bridge import (
+    create_cli_improvement_proposal,
+    get_cli_job,
+    open_cli_session,
+    render_cli_jobs_summary,
+    render_cli_tools_summary,
+    run_cli_once,
+)
 from engine.project_manager import list_projects, register_project
 from engine.repo_analyzer import analyze_github_repo_and_dream
+from engine.restart_manager import request_bot_restart
 from engine.research_team import generate_team_brief
 from engine.rollback_engine import rollback_proposal
+from engine.confirmation_store import (
+    clear_pending_confirmation,
+    get_pending_confirmation,
+    interpret_confirmation_reply,
+    save_pending_confirmation,
+)
+from engine.conversation_memory import append_conversation_turn, get_recent_context
+from engine.orchestrator import OrchestrationPlan, execute_orchestration_plan, looks_like_plain_text_request, route_message_to_plan
+from engine.openrouter_client import OpenRouterError
 from engine.self_improvement_engine import generate_improvement_proposal
 from engine.team_orchestrator import create_team_plan, get_team_plan, list_team_plans
 from engine.tool_registry import iter_tools
@@ -39,6 +60,34 @@ read_env_file()
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 PID_PATH = ROOT / "runtime" / "telegram_bot.pid"
 BOT_LOG_PATH = ROOT / "runtime" / "logs" / "telegram_bot.lifecycle.log"
+BOT_ERR_LOG_PATH = ROOT / "runtime" / "logs" / "telegram_bot.err.log"
+_BOT_MUTEX_NAME = "Local\\HAXMindTelegramBotSingleton"
+_ERROR_ALREADY_EXISTS = 183
+
+
+class BotInstanceLock:
+    def __init__(self) -> None:
+        self._handle = None
+
+    def acquire(self) -> None:
+        if os.name != "nt":
+            return
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.CreateMutexW(None, False, _BOT_MUTEX_NAME)
+        if not handle:
+            raise RuntimeError("Unable to create Windows mutex for HAX-Mind bot")
+        last_error = ctypes.get_last_error()
+        if last_error == _ERROR_ALREADY_EXISTS:
+            kernel32.CloseHandle(handle)
+            raise RuntimeError("Another HAX-Mind Telegram bot instance is already running.")
+        self._handle = handle
+
+    def release(self) -> None:
+        if os.name != "nt" or not self._handle:
+            return
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CloseHandle(self._handle)
+        self._handle = None
 
 
 def _user_id(update: Update) -> int | None:
@@ -86,7 +135,7 @@ async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "HAX-Mind ready. Commands: /whoami /auth /status /project add|list /task <project> <work> /tasks /taskstatus <id> /propose <task_id> /approve <proposal_id> /execute <proposal_id> /picoclaw status|plan|jobs|queue <approved_proposal_id> /memory /recall <query> /phase3 now /clusters /decisions /team <topic> | /team plan|list|status <task_id> /dream now /analyze repo <url> /report\nStructured task syntax for guarded real apply: /task <project_id> append|replace|create|delete <path> :: <content>"
+        "HAX-Mind ready. Commands: /whoami /auth /status /restart /project add|list /task <project> <work> /tasks /taskstatus <id> /propose <task_id> /approve <proposal_id> /execute <proposal_id> /picoclaw status|plan|jobs|queue <approved_proposal_id> /cli tools|jobs|status <job_id>|open <tool> <prompt>|run <tool> <prompt>|improve /memory /recall <query> /phase3 now /clusters /decisions /team <topic> | /team plan|list|status <task_id> /dream now|latest|explain [dream_id|latest]|task <project_id> [dream_id|latest] /analyze repo <url> /report\nStructured task syntax for guarded real apply: /task <project_id> append|replace|create|delete <path> :: <content>"
     )
 
 
@@ -220,6 +269,85 @@ async def picoclaw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     await update.message.reply_text("Usage: /picoclaw status | plan | jobs | queue <approved_proposal_id>")
+
+
+async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    action = context.args[0].lower() if context.args else "tools"
+    if action == "tools":
+        await update.message.reply_text(render_cli_tools_summary())
+        return
+    if action == "jobs":
+        await update.message.reply_text(render_cli_jobs_summary())
+        return
+    if action == "status":
+        if len(context.args) < 2:
+            await update.message.reply_text("Usage: /cli status <job_id>")
+            return
+        try:
+            job = get_cli_job(context.args[1])
+        except Exception as exc:
+            await update.message.reply_text(f"CLI job lookup failed: {exc}")
+            return
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    f"CLI job: {job['id']}",
+                    f"Tool: {job['tool']}",
+                    f"Mode: {job['mode']}",
+                    f"Status: {job['status']}",
+                    *( [f"Output: {job['output_path']}"] if job.get("output_path") else [] ),
+                    *( [f"Exit code: {job['exit_code']}"] if 'exit_code' in job else [] ),
+                ]
+            )
+        )
+        return
+    if action == "open":
+        if len(context.args) < 3:
+            await update.message.reply_text("Usage: /cli open <codex|omx|gemini|kimi> <prompt>")
+            return
+        try:
+            job = open_cli_session(context.args[1], " ".join(context.args[2:]))
+        except Exception as exc:
+            await update.message.reply_text(f"CLI open failed: {exc}")
+            return
+        await update.message.reply_text(
+            f"Opened {job['tool']} interactive CLI.\nJob: {job['id']}\nPrompt: {job['prompt'][:200]}"
+        )
+        return
+    if action == "run":
+        if len(context.args) < 3:
+            await update.message.reply_text("Usage: /cli run <codex|omx|gemini|kimi> <prompt>")
+            return
+        try:
+            job = run_cli_once(context.args[1], " ".join(context.args[2:]))
+        except Exception as exc:
+            await update.message.reply_text(f"CLI run failed: {exc}")
+            return
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    f"CLI job completed: {job['id']}",
+                    f"Tool: {job['tool']}",
+                    f"Status: {job['status']}",
+                    *( [f"Output: {job['output_path']}"] if job.get("output_path") else [] ),
+                    *( [job['stdout_excerpt'][:1500]] if job.get("stdout_excerpt") else [] ),
+                ]
+            )[:4000]
+        )
+        return
+    if action == "improve":
+        proposal = create_cli_improvement_proposal()
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    f"CLI improvement proposal created: {proposal['id']}",
+                    f"Risk: {proposal['risk']}",
+                    f"Title: {proposal['title']}",
+                ]
+            )
+        )
+        return
+    await update.message.reply_text("Usage: /cli tools | jobs | status <job_id> | open <tool> <prompt> | run <tool> <prompt> | improve")
 
 
 async def taskstatus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -489,6 +617,24 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await morning(update, context)
 
 
+async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        result = request_bot_restart()
+    except Exception as exc:
+        await update.message.reply_text(f"Restart failed: {exc}")
+        return
+    await update.message.reply_text(
+        "\n".join(
+            [
+                "Restart scheduled.",
+                f"Requested at: {result['requested_at']}",
+                f"Delay: {result['delay_seconds']}s",
+                "The bot may pause briefly, then come back under the supervisor.",
+            ]
+        )
+    )
+
+
 async def nightly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if context.args and context.args[0].lower() != "now":
         await update.message.reply_text("Usage: /nightly now")
@@ -499,18 +645,58 @@ async def nightly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if context.args and context.args[0].lower() != "now":
-        await update.message.reply_text("Usage: /dream now")
-        return
-    result = run_dream_cycle(trigger="telegram:/dream")
-    await update.message.reply_text(
-        "\n".join(
-            [
-                f"Dream completed: {result['id']}",
-                f"Tools: {result['light_sleep']['tool_count']} | Repos: {result['light_sleep']['repo_count']} | Notes: {result['light_sleep']['note_count']}",
-                f"Patterns: {', '.join(result['rem']['patterns'][:8]) or 'none'}",
-            ]
+    action = context.args[0].lower() if context.args else "now"
+    if action == "now":
+        result = run_dream_cycle(trigger="telegram:/dream")
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    f"Dream completed: {result['id']}",
+                    f"Tools: {result['light_sleep']['tool_count']} | Repos: {result['light_sleep']['repo_count']} | Notes: {result['light_sleep']['note_count']}",
+                    f"Patterns: {', '.join(result['rem']['patterns'][:8]) or 'none'}",
+                    "A dream is a generated memory reflection, not a scheduled task.",
+                ]
+            )
         )
+        return
+    if action == "latest":
+        dream_record = latest_dream()
+        if not dream_record:
+            await update.message.reply_text("No dream exists yet. Run /dream now first.")
+            return
+        await update.message.reply_text(explain_dream(dream_record))
+        return
+    if action == "explain":
+        dream_id = context.args[1] if len(context.args) > 1 and context.args[1].lower() != "latest" else None
+        try:
+            dream_record = latest_dream() if dream_id is None else None
+            if dream_id:
+                dream_record = get_dream(dream_id)
+            await update.message.reply_text(explain_dream(dream_record))
+        except Exception as exc:
+            await update.message.reply_text(f"Dream explanation failed: {exc}")
+        return
+    if action == "task":
+        project_id = context.args[1] if len(context.args) > 1 else None
+        dream_id = context.args[2] if len(context.args) > 2 and context.args[2].lower() != "latest" else None
+        try:
+            mission = create_task_from_dream(project_id=project_id, dream_id=dream_id)
+        except Exception as exc:
+            await update.message.reply_text(f"Create task from dream failed: {exc}")
+            return
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    f"Task created from dream: {mission['id']}",
+                    f"Project: {mission['project_name']}",
+                    f"Source dream: {mission.get('source_dream_id', 'latest')}",
+                    f"Status: {mission['status']}",
+                ]
+            )
+        )
+        return
+    await update.message.reply_text(
+        "Usage: /dream now | /dream latest | /dream explain [dream_id|latest] | /dream task <project_id> [dream_id|latest]"
     )
 
 
@@ -545,9 +731,79 @@ async def rollback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(result["message"])
 
 
+async def natural_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = (update.effective_message.text if update.effective_message else "") or ""
+    if not looks_like_plain_text_request(text):
+        return
+    chat_id = update.effective_chat.id if update.effective_chat else "unknown"
+    user_id = _user_id(update)
+    append_conversation_turn(chat_id, role="user", content=text, user_id=user_id)
+
+    pending = get_pending_confirmation(chat_id)
+    if pending:
+        decision = interpret_confirmation_reply(text)
+        if decision == "confirm":
+            clear_pending_confirmation(chat_id)
+            try:
+                plan = OrchestrationPlan(**pending["plan"])
+                reply = await asyncio.to_thread(execute_orchestration_plan, plan)
+            except Exception as exc:
+                reply = f"Confirmation failed while executing the pending action: {exc}"
+            append_conversation_turn(chat_id, role="assistant", content=reply, user_id=user_id, metadata={"confirmed_action": pending.get("action")})
+            await update.message.reply_text(reply[:4000])
+            return
+        if decision == "cancel":
+            clear_pending_confirmation(chat_id)
+            reply = "Cancelled the pending execution request."
+            append_conversation_turn(chat_id, role="assistant", content=reply, user_id=user_id, metadata={"confirmed_action": "cancelled"})
+            await update.message.reply_text(reply)
+            return
+        reminder = (
+            f"Pending confirmation: {pending.get('summary', pending.get('action', 'execute action'))}\n"
+            "Reply with YES to continue or NO to cancel."
+        )
+        append_conversation_turn(chat_id, role="assistant", content=reminder, user_id=user_id, metadata={"confirmation_pending": True})
+        await update.message.reply_text(reminder)
+        return
+
+    try:
+        history = get_recent_context(chat_id, limit=8)
+        plan = await asyncio.to_thread(
+            lambda: route_message_to_plan(text, root=ROOT, conversation_history=history)
+        )
+        if plan.action == "execute_proposal":
+            summary = plan.reply or f"Execute proposal {plan.proposal_id}"
+            save_pending_confirmation(
+                chat_id,
+                user_id=user_id,
+                action=plan.action,
+                plan=plan.__dict__,
+                summary=summary,
+            )
+            reply = (
+                f"{summary}\n"
+                f"Pending confirmation for proposal {plan.proposal_id or 'unknown'}.\n"
+                "Reply with YES to execute or NO to cancel."
+            )
+        else:
+            reply = await asyncio.to_thread(execute_orchestration_plan, plan)
+    except OpenRouterError as exc:
+        reply = f"OpenRouter orchestration failed right now.\nError: {exc}"
+    except Exception as exc:
+        reply = f"Natural-language orchestration failed: {exc}"
+    append_conversation_turn(chat_id, role="assistant", content=reply, user_id=user_id)
+    await update.message.reply_text(reply[:4000])
+
+
 def _write_lifecycle(message: str) -> None:
     ensure_dir(BOT_LOG_PATH.parent)
     with BOT_LOG_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(f"[{now_iso()}] {message}\n")
+
+
+def _write_error_log(message: str) -> None:
+    ensure_dir(BOT_ERR_LOG_PATH.parent)
+    with BOT_ERR_LOG_PATH.open("a", encoding="utf-8") as handle:
         handle.write(f"[{now_iso()}] {message}\n")
 
 
@@ -559,26 +815,39 @@ def _write_pid() -> None:
 
 def _clear_pid() -> None:
     if PID_PATH.exists():
-        PID_PATH.unlink(missing_ok=True)
+        current = PID_PATH.read_text(encoding="utf-8", errors="ignore").strip()
+        if current == str(os.getpid()):
+            PID_PATH.unlink(missing_ok=True)
     _write_lifecycle("telegram bot stopped")
+
+
+async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = f"telegram bot error: {context.error!r}"
+    _write_error_log(message)
+    _write_lifecycle(message)
 
 
 def main() -> None:
     if not TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN not found. Copy .env.example to .env and set it yourself.")
+    instance_lock = BotInstanceLock()
+    instance_lock.acquire()
     _write_pid()
     app = ApplicationBuilder().token(TOKEN).build()
+    app.add_error_handler(_on_error)
     app.add_handler(CommandHandler("whoami", whoami))
     app.add_handler(CommandHandler("auth", auth))
     app.add_handler(CommandHandler("start", require_auth(start)))
     app.add_handler(CommandHandler("status", require_auth(status)))
     app.add_handler(CommandHandler("health", require_auth(health)))
+    app.add_handler(CommandHandler("restart", require_auth(restart)))
     app.add_handler(CommandHandler("project", require_auth(project)))
     app.add_handler(CommandHandler("task", require_auth(task)))
     app.add_handler(CommandHandler("tasks", require_auth(tasks)))
     app.add_handler(CommandHandler("taskstatus", require_auth(taskstatus)))
     app.add_handler(CommandHandler("taskdone", require_auth(taskdone)))
     app.add_handler(CommandHandler("picoclaw", require_auth(picoclaw)))
+    app.add_handler(CommandHandler("cli", require_auth(cli)))
     app.add_handler(CommandHandler("propose", require_auth(propose)))
     app.add_handler(CommandHandler("execute", require_auth(execute)))
     app.add_handler(CommandHandler("memory", require_auth(memory)))
@@ -600,10 +869,12 @@ def main() -> None:
     app.add_handler(CommandHandler("nightly", require_auth(nightly)))
     app.add_handler(CommandHandler("dream", require_auth(dream)))
     app.add_handler(CommandHandler("analyze", require_auth(analyze)))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, require_auth(natural_chat)))
     try:
         app.run_polling()
     finally:
         _clear_pid()
+        instance_lock.release()
 
 
 if __name__ == "__main__":

@@ -13,6 +13,8 @@ from typing import Any
 from engine.memory_store import append_raw_log, initialize_memory_dirs, write_json, write_text
 from engine.utils import ROOT, now_iso
 
+DREAMS_DIRNAME = "dreams"
+
 
 def _safe_id(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_]+", "_", value).strip("_").lower()[:80] or "memory"
@@ -58,6 +60,10 @@ def _canonical_search_dirs(root: Path) -> list[Path]:
         root / "memory" / "canonical" / "dreams",
         root / "memory" / "canonical" / "decisions",
     ]
+
+
+def _dreams_dir(root: Path = ROOT) -> Path:
+    return root / "memory" / "canonical" / DREAMS_DIRNAME
 
 
 def _record_title(payload: dict[str, Any], path: Path) -> str:
@@ -541,6 +547,61 @@ def run_dream_cycle(root: Path = ROOT, trigger: str = "manual") -> dict:
     dream["phase3_memory_intelligence"] = phase3
     write_json(canonical / "dreams" / f"{dream_id}.json", dream)
     return dream
+
+
+def list_dreams(root: Path = ROOT, limit: int = 10) -> list[dict[str, Any]]:
+    directory = _dreams_dir(root)
+    directory.mkdir(parents=True, exist_ok=True)
+    records: list[dict[str, Any]] = []
+    for path in sorted(directory.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True)[:limit]:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        payload["_path"] = str(path.relative_to(root))
+        records.append(payload)
+    return records
+
+
+def get_dream(dream_id: str, root: Path = ROOT) -> dict[str, Any]:
+    path = _dreams_dir(root) / f"{dream_id}.json"
+    if not path.exists():
+        raise FileNotFoundError(f"Dream not found: {dream_id}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["_path"] = str(path.relative_to(root))
+    return payload
+
+
+def latest_dream(root: Path = ROOT) -> dict[str, Any] | None:
+    dreams = list_dreams(root=root, limit=1)
+    return dreams[0] if dreams else None
+
+
+def explain_dream(dream: dict[str, Any] | None = None, *, root: Path = ROOT) -> str:
+    dream = dream or latest_dream(root=root)
+    if not dream:
+        return "No dream exists yet. Run /dream now or analyze a repo first."
+
+    rem = dream.get("rem", {})
+    next_actions = rem.get("next_actions", [])[:3]
+    insights = rem.get("insights", [])[:2]
+    lines = [
+        f"Dream: {dream['id']}",
+        "A dream is a generated memory-reflection note, not a scheduled task or proposal.",
+        f"Trigger: {dream.get('trigger', 'unknown')}",
+        (
+            "It summarizes patterns, insights, and recommended next actions from repo analysis, notes, tools, and raw logs."
+        ),
+        f"Patterns: {', '.join(rem.get('patterns', [])[:6]) or 'none'}",
+    ]
+    if insights:
+        lines.append("Insights:")
+        lines.extend(f"- {item}" for item in insights)
+    if next_actions:
+        lines.append("Recommended next actions:")
+        lines.extend(f"- {item}" for item in next_actions)
+    lines.append("If you want to act on it, turn it into a task or proposal.")
+    return "\n".join(lines)
 
 
 def recall(keyword: str, root: Path = ROOT, limit: int = 8) -> list[dict]:

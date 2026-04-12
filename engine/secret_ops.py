@@ -8,6 +8,7 @@ from engine.utils import ROOT, now_iso, read_env_file
 
 REQUIRED_SECRETS = [
     {"name": "TELEGRAM_BOT_TOKEN", "required": True, "rotation_days": 90},
+    {"name": "OPENROUTER_API_KEY", "required": False, "rotation_days": 90},
     {"name": "PICOCLAW_SHARED_SECRET", "required": False, "rotation_days": 90},
     {"name": "PICOCLAW_WORKER_SECRET", "required": False, "rotation_days": 90},
 ]

@@ -86,6 +86,7 @@ Telegram
 - approve / reject proposals
 - execute guarded changes
 - inspect status and reports
+- optionally route plain-language requests through OpenRouter into the same task / proposal / execute workflow
 
 ### 2. File-first memory system
 
@@ -139,6 +140,34 @@ workspace/  Registered local projects
 
 ## Quick start
 
+### Easiest setup on this machine
+
+If you want a guided setup flow inspired by Hermes-style onboarding, run:
+
+```powershell
+.\setup-haxmind.cmd
+```
+
+It will let you choose a setup mode:
+
+- **Quick local setup** — create/use `.venv`, install requirements, create `.env` from template, run tests
+- **Telegram bot setup** — quick setup + secret audit + easy bot launch path
+- **Local production setup** — quick setup + secret audit + scheduled tasks + background startup path
+- **Repair / re-check** — reinstall deps, run tests, and refresh health output
+
+The setup wizard also now supports:
+
+- a **detailed start-mode menu**
+  - visible in this setup window
+  - visible in a new terminal window
+  - background / supervised
+  - don't start now
+- optional **OpenRouter configuration**
+  - asks for API key
+  - asks for model
+  - writes `OPENROUTER_*` values into `.env` or `.env.txt`
+  - defaults to `openrouter/free` for a free-router starting point
+
 ### 1. Setup
 
 ```powershell
@@ -171,6 +200,26 @@ If you want the local production supervision path:
 .\run-recover.cmd
 ```
 
+If you want a **single-click launcher** on this machine, use:
+
+```powershell
+.\run-all.bat
+```
+
+What `run-all.bat` does:
+
+- stops any old hidden bot/supervisor instance first
+- runs the local health check
+- generates a production status snapshot
+- opens the local dashboard if it already exists
+- launches the Telegram bot in a **visible terminal window** and keeps that window open while the bot is running
+
+If you want the hidden/background recovery path instead, keep using:
+
+```powershell
+.\run-recover.cmd
+```
+
 ### 4. Check health
 
 ```powershell
@@ -188,6 +237,7 @@ If you want the local production supervision path:
 /whoami
 /auth
 /status
+/restart
 /health
 /project add <name> <path_or_repo>
 /project list
@@ -203,7 +253,76 @@ If you want the local production supervision path:
 /report
 /morning
 /nightly now
+/cli tools
+/cli jobs
+/cli status <job_id>
+/cli open <codex|omx|gemini|kimi> <prompt>
+/cli run <codex|omx|gemini|kimi> <prompt>
+/cli improve
 ```
+
+### Natural-language orchestration
+
+If `OPENROUTER_API_KEY` is configured, you can also talk to the bot in plain language, for example:
+
+```text
+create a task for haxmind to append README.md with a short deployment note
+make a proposal for task_20260412_abcd12
+approve proposal prop_20260412_abcd1234
+execute proposal prop_20260412_abcd1234
+show me project status
+analyze repo microsoft/TypeScript
+```
+
+The OpenRouter router maps these requests onto the existing guarded HAX-Mind engine actions.
+
+### Local CLI delegation from Telegram
+
+HAX-Mind can now delegate work to allowlisted local CLIs on this machine:
+
+- `codex`
+- `omx`
+- `gemini`
+- `kimi`
+
+Use:
+
+```text
+/cli tools
+/cli open codex inspect the current workspace and suggest next steps
+/cli run gemini summarize the current repo status
+/cli jobs
+/cli status <job_id>
+/cli improve
+```
+
+This gives Telegram-triggered local CLI delegation without exposing arbitrary shell execution.
+
+Dreams are memory-reflection artifacts, not scheduled tasks. If you want to turn the latest dream into real work, create a task from it:
+
+```text
+/dream task <project_id>
+```
+
+For risky natural-language execution requests, HAX-Mind now uses a confirmation gate:
+
+```text
+execute proposal prop_20260412_abcd1234
+```
+
+The bot will ask for confirmation first. Reply:
+
+```text
+YES
+```
+
+to continue, or:
+
+```text
+NO
+```
+
+to cancel.
 
 ### Memory + intelligence
 
@@ -212,6 +331,9 @@ If you want the local production supervision path:
 /remember <text>
 /recall <query>
 /dream now
+/dream latest
+/dream explain [dream_id|latest]
+/dream task <project_id> [dream_id|latest]
 /phase3 now
 /clusters
 /decisions

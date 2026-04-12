@@ -19,7 +19,28 @@ function Write-SupervisorLog {
     Add-Content -LiteralPath $logFile -Value "[$timestamp] $Message"
 }
 
+function Get-BotProcesses {
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Name -match '^python(\.exe)?$' -and
+            $_.CommandLine -match 'telegram_bot\.py'
+        }
+}
+
+function Get-SupervisorProcesses {
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Name -match '^powershell(\.exe)?$' -and
+            $_.CommandLine -match 'run-telegram-bot-supervisor\.ps1'
+        }
+}
+
 function Test-BotRunning {
+    $runningBot = Get-BotProcesses | Select-Object -First 1
+    if ($runningBot) {
+        return $true
+    }
+
     if (-not (Test-Path $pidFile)) {
         return $false
     }
@@ -42,6 +63,11 @@ function Test-BotRunning {
 }
 
 function Test-SupervisorRunning {
+    $runningSupervisors = Get-SupervisorProcesses | Where-Object { $_.ProcessId -ne $PID }
+    if ($runningSupervisors) {
+        return $true
+    }
+
     if (-not (Test-Path $supervisorPidFile)) {
         return $false
     }
