@@ -348,6 +348,7 @@ to cancel.
 
 ```text
 /picoclaw status
+/picoclaw worker status
 /picoclaw plan
 /picoclaw jobs
 /picoclaw queue <approved_proposal_id>

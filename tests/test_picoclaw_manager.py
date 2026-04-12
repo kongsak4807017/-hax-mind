@@ -6,6 +6,7 @@ from engine.picoclaw_manager import (
     picoclaw_plan,
     picoclaw_status,
     record_worker_heartbeat,
+    worker_status,
 )
 from engine.project_manager import register_project
 
@@ -36,6 +37,32 @@ def test_picoclaw_heartbeat_requires_shared_secret(tmp_path, monkeypatch):
     assert state["readiness"]["heartbeat_endpoint"] is True
     assert state["readiness"]["termux_worker_installed"] is True
     assert "termux-alpha" in state["workers"]
+
+
+def test_picoclaw_worker_status_reports_offline_without_heartbeat(tmp_path):
+    status = worker_status(root=tmp_path)
+    assert status["status"] == "offline"
+
+
+def test_picoclaw_worker_status_reports_stale_for_old_heartbeat(tmp_path, monkeypatch):
+    monkeypatch.setenv("PICOCLAW_SHARED_SECRET", "phase2-secret")
+    record = record_worker_heartbeat(
+        "termux-alpha",
+        "phase2-secret",
+        platform="termux",
+        capabilities=["read_only_repo"],
+        root=tmp_path,
+    )
+    heartbeat_path = next((tmp_path / "runtime" / "picoclaw" / "heartbeats").glob("*.json"))
+    payload = heartbeat_path.read_text(encoding="utf-8")
+    payload = payload.replace(record["timestamp"], "2026-01-01T00:00:00+07:00")
+    heartbeat_path.write_text(payload, encoding="utf-8")
+
+    status = worker_status(root=tmp_path)
+    state = picoclaw_status(root=tmp_path)
+
+    assert status["status"] == "stale"
+    assert state["status"] == "worker_stale"
 
 
 def test_picoclaw_queue_claim_complete_remote_job(tmp_path, monkeypatch):

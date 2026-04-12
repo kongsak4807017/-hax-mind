@@ -1,6 +1,6 @@
 # PicoClaw Phase 2 Plan
 
-Status: `worker_connected`
+Status: `worker_stale`
 
 ## Role
 

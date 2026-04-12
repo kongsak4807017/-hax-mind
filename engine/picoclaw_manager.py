@@ -3,6 +3,7 @@
 import json
 import os
 import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ from engine.proposal_engine import get_proposal
 from engine.utils import ROOT, ensure_dir, now_iso, read_env_file
 
 PICOCLAW_STATE = ROOT / "state" / "picoclaw_state.json"
+WORKER_STALE_AFTER_MINUTES = 15
 
 
 def default_picoclaw_state() -> dict:
@@ -97,6 +99,25 @@ def _iter_json_records(directory: Path, limit: int | None = None) -> list[dict[s
     return items
 
 
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _heartbeat_liveness(timestamp: str | None, stale_after_minutes: int = WORKER_STALE_AFTER_MINUTES) -> str:
+    heartbeat_time = _parse_iso_datetime(timestamp)
+    if heartbeat_time is None:
+        return "offline"
+    age = datetime.now(heartbeat_time.tzinfo) - heartbeat_time
+    if age <= timedelta(minutes=stale_after_minutes):
+        return "live"
+    return "stale"
+
+
 def _worker_secret() -> str | None:
     read_env_file()
     raw = os.environ.get("PICOCLAW_SHARED_SECRET", "").strip() or os.environ.get("PICOCLAW_WORKER_SECRET", "").strip()
@@ -124,9 +145,38 @@ def list_workers(root: Path = ROOT, limit: int = 20, include_stale: bool = True)
     workers = []
     for worker in latest_worker_heartbeats(root=root, limit=limit):
         item = dict(worker)
-        item["active"] = True
+        liveness = _heartbeat_liveness(worker.get("timestamp"))
+        item["active"] = liveness == "live"
+        item["liveness"] = liveness
+        if not include_stale and liveness != "live":
+            continue
         workers.append(item)
     return workers
+
+
+def worker_status(root: Path = ROOT) -> dict[str, Any]:
+    latest = latest_worker_heartbeat(root)
+    if latest is None:
+        return {
+            "status": "offline",
+            "worker_id": None,
+            "last_seen_at": None,
+            "capabilities": [],
+            "summary": "No worker heartbeat has been recorded yet.",
+        }
+    liveness = _heartbeat_liveness(latest.get("timestamp"))
+    summary = {
+        "live": "Worker is online and heartbeats are fresh.",
+        "stale": "A worker heartbeat exists, but it is stale. The worker is not confirmed online right now.",
+        "offline": "No current worker heartbeat is available.",
+    }[liveness]
+    return {
+        "status": liveness,
+        "worker_id": latest.get("worker_id"),
+        "last_seen_at": latest.get("timestamp"),
+        "capabilities": latest.get("capabilities", []),
+        "summary": summary,
+    }
 
 
 def list_remote_jobs(status: str | None = None, limit: int = 20, root: Path = ROOT) -> list[dict]:
@@ -138,6 +188,7 @@ def list_remote_jobs(status: str | None = None, limit: int = 20, root: Path = RO
 
 def _refresh_state(state: dict, root: Path) -> dict:
     latest_heartbeat = latest_worker_heartbeat(root)
+    live_worker_status = worker_status(root)
     jobs = _iter_json_records(_jobs_dir(root), limit=None)
     workers = {
         worker["worker_id"]: worker
@@ -182,14 +233,18 @@ def _refresh_state(state: dict, root: Path) -> dict:
             "worker_id": latest_heartbeat["worker_id"],
             "last_seen_at": latest_heartbeat["timestamp"],
             "capabilities": latest_heartbeat.get("capabilities", []),
+            "status": live_worker_status["status"],
         }
         if latest_heartbeat
         else None
     )
+    state["worker_runtime_status"] = live_worker_status
     state["updated_at"] = now_iso()
 
-    if latest_heartbeat is not None:
+    if live_worker_status["status"] == "live":
         state["status"] = "worker_connected"
+    elif latest_heartbeat is not None:
+        state["status"] = "worker_stale"
     elif readiness["worker_auth_secret_configured"]:
         state["status"] = "control_plane_ready"
     else:

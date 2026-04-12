@@ -26,7 +26,7 @@ from engine.mission_engine import (
     list_missions,
     update_mission_status,
 )
-from engine.picoclaw_manager import list_remote_jobs, picoclaw_plan, picoclaw_status, queue_proposal_for_remote_safe_execution
+from engine.picoclaw_manager import list_remote_jobs, picoclaw_plan, picoclaw_status, queue_proposal_for_remote_safe_execution, worker_status
 from engine.proposal_engine import list_proposals, update_proposal_status
 from engine.apply_engine import execute_proposal_safe
 from engine.cli_bridge import (
@@ -135,7 +135,7 @@ async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "HAX-Mind ready. Commands: /whoami /auth /status /restart /project add|list /task <project> <work> /tasks /taskstatus <id> /propose <task_id> /approve <proposal_id> /execute <proposal_id> /picoclaw status|plan|jobs|queue <approved_proposal_id> /cli tools|jobs|status <job_id>|open <tool> <prompt>|run <tool> <prompt>|improve /memory /recall <query> /phase3 now /clusters /decisions /team <topic> | /team plan|list|status <task_id> /dream now|latest|explain [dream_id|latest]|task <project_id> [dream_id|latest] /analyze repo <url> /report\nStructured task syntax for guarded real apply: /task <project_id> append|replace|create|delete <path> :: <content>"
+        "HAX-Mind ready. Commands: /whoami /auth /status /restart /project add|list /task <project> <work> /tasks /taskstatus <id> /propose <task_id> /approve <proposal_id> /execute <proposal_id> /picoclaw status|worker status|plan|jobs|queue <approved_proposal_id> /cli tools|jobs|status <job_id>|open <tool> <prompt>|run <tool> <prompt>|improve /memory /recall <query> /phase3 now /clusters /decisions /team <topic> | /team plan|list|status <task_id> /dream now|latest|explain [dream_id|latest]|task <project_id> [dream_id|latest] /analyze repo <url> /report\nStructured task syntax for guarded real apply: /task <project_id> append|replace|create|delete <path> :: <content>"
     )
 
 
@@ -210,6 +210,24 @@ async def taskdone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def picoclaw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     action = context.args[0].lower() if context.args else "status"
+    if action == "worker":
+        subaction = context.args[1].lower() if len(context.args) > 1 else "status"
+        if subaction != "status":
+            await update.message.reply_text("Usage: /picoclaw worker status")
+            return
+        state = worker_status()
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    f"PicoClaw worker status: {state['status']}",
+                    f"Worker: {state['worker_id'] or 'none'}",
+                    f"Last seen: {state['last_seen_at'] or 'never'}",
+                    f"Capabilities: {', '.join(state.get('capabilities', [])) or 'none'}",
+                    state["summary"],
+                ]
+            )
+        )
+        return
     if action == "status":
         state = picoclaw_status()
         ready = state["readiness"]
@@ -225,7 +243,7 @@ async def picoclaw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     f"Secret configured: {ready['worker_auth_secret_configured']}",
                     f"Remote queue: pending={queue.get('pending', 0)} claimed={queue.get('claimed', 0)} completed={queue.get('completed', 0)} failed={queue.get('failed', 0)}",
                     f"Latest heartbeat: {heartbeat['worker_id']} @ {heartbeat['last_seen_at']}" if heartbeat else "Latest heartbeat: none yet",
-                    "Use /picoclaw plan, /picoclaw jobs, or /picoclaw queue <approved_proposal_id>.",
+                    "Use /picoclaw worker status, /picoclaw plan, /picoclaw jobs, or /picoclaw queue <approved_proposal_id>.",
                 ]
             )
         )
@@ -268,7 +286,7 @@ async def picoclaw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         )
         return
-    await update.message.reply_text("Usage: /picoclaw status | plan | jobs | queue <approved_proposal_id>")
+    await update.message.reply_text("Usage: /picoclaw status | worker status | plan | jobs | queue <approved_proposal_id>")
 
 
 async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
