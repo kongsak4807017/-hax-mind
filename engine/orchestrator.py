@@ -8,10 +8,19 @@ from typing import Any, Callable
 
 from engine.apply_engine import execute_proposal_safe
 from engine.cli_bridge import (
+    close_cli_session,
+    continue_cli_session,
     create_cli_improvement_proposal,
     get_cli_job,
+    get_cli_session,
+    latest_cli_job,
+    latest_cli_session,
     open_cli_session,
+    render_cli_job_detail,
     render_cli_jobs_summary,
+    render_cli_session_detail,
+    render_cli_sessions_summary,
+    start_cli_session,
     render_cli_tools_summary,
     run_cli_once,
 )
@@ -96,7 +105,7 @@ def _build_system_prompt(root: Path, conversation_history: list[dict[str, str]] 
         "Allowed actions: reply, help, status, list_projects, create_project, list_tasks, task_status, "
         "create_task, create_proposal, list_proposals, approve_proposal, reject_proposal, execute_proposal, "
         "rollback_proposal, morning_report, analyze_repo, explain_dream, create_task_from_dream, "
-        "list_cli_tools, list_cli_jobs, cli_job_status, open_cli_session, run_cli_once, cli_improve.\n"
+        "list_cli_tools, list_cli_jobs, list_cli_sessions, cli_job_status, cli_session_status, start_cli_session, continue_cli_session, close_cli_session, open_cli_session, run_cli_once, cli_improve.\n"
         "Rules:\n"
         "- Use current ids from context when possible.\n"
         "- create_task requires project_id or a project_name that matches context.\n"
@@ -144,7 +153,60 @@ def _salvage_router_payload(content: str) -> dict[str, Any]:
     }
 
 
+def _detect_cli_intent(user_message: str) -> dict[str, Any] | None:
+    text = " ".join(user_message.strip().split())
+    if not text:
+        return None
+    lowered = text.lower()
+    tool = next((name for name in ("codex", "omx", "gemini", "kimi") if re.search(rf"\b{name}\b", lowered)), None)
+    if any(token in lowered for token in ["sessions", "session list", "\u0e23\u0e32\u0e22\u0e01\u0e32\u0e23 session"]):
+        return {"action": "list_cli_sessions", "reply": "Showing CLI sessions."}
+    if any(token in lowered for token in ["latest cli", "proof", "\u0e2b\u0e25\u0e31\u0e01\u0e10\u0e32\u0e19", "job \u0e25\u0e48\u0e32\u0e2a\u0e38\u0e14"]):
+        return {"action": "cli_job_status", "reply": "Showing the latest CLI proof."}
+    if tool is None:
+        return None
+    if any(token in lowered for token in ["continue", "\u0e2a\u0e48\u0e07\u0e15\u0e48\u0e2d", "step \u0e15\u0e48\u0e2d", "\u0e15\u0e48\u0e2d\u0e40\u0e25\u0e22"]) and tool in {"kimi", "gemini", "codex"}:
+        return {
+            "action": "continue_cli_session",
+            "reply": f"Continuing the latest {tool} session.",
+            "cli_tool": tool,
+            "description": text,
+        }
+    if any(token in lowered for token in ["\u0e1b\u0e34\u0e14 session", "close session", f"close {tool}", "\u0e08\u0e1a session"]) and tool in {"kimi", "gemini", "codex"}:
+        return {
+            "action": "close_cli_session",
+            "reply": f"Closing the latest {tool} session.",
+            "cli_tool": tool,
+        }
+    if any(token in lowered for token in ["\u0e40\u0e1b\u0e34\u0e14", "open", "launch"]) and tool in {"kimi", "gemini", "codex"}:
+        return {
+            "action": "start_cli_session",
+            "reply": f"Starting a {tool} session in the workspace now.",
+            "cli_tool": tool,
+            "description": text,
+        }
+    if any(token in lowered for token in ["\u0e40\u0e1b\u0e34\u0e14", "open", "launch"]):
+        return {
+            "action": "open_cli_session",
+            "reply": f"Opening {tool} CLI in the workspace now.",
+            "cli_tool": tool,
+            "description": text,
+        }
+    if any(token in lowered for token in ["\u0e23\u0e31\u0e19", "run", "summarize", "\u0e2a\u0e23\u0e38\u0e1b", "\u0e2d\u0e18\u0e34\u0e1a\u0e32\u0e22", "explain"]) and tool not in {"kimi", "gemini", "codex"}:
+        return {
+            "action": "run_cli_once",
+            "reply": f"Running {tool} once in the workspace now.",
+            "cli_tool": tool,
+            "description": text,
+        }
+    return None
+
+
+
 def _call_openrouter_for_plan(system_prompt: str, user_message: str) -> dict[str, Any]:
+    shortcut = _detect_cli_intent(user_message)
+    if shortcut is not None:
+        return shortcut
     payload = chat_completion(
         messages=[
             {"role": "system", "content": system_prompt},
@@ -234,19 +296,22 @@ def execute_orchestration_plan(plan: OrchestrationPlan, *, root: Path = ROOT) ->
         return render_cli_tools_summary()
     if action == "list_cli_jobs":
         return render_cli_jobs_summary(root=root)
+    if action == "list_cli_sessions":
+        return render_cli_sessions_summary(root=root)
     if action == "cli_job_status":
-        if not (plan.cli_job_id or plan.task_id):
-            return plan.reply or "Please specify the CLI job id you want to inspect."
-        job = get_cli_job(plan.cli_job_id or plan.task_id, root=root)
-        lines = [
-            f"CLI job: {job['id']}",
-            f"Tool: {job['tool']}",
-            f"Mode: {job['mode']}",
-            f"Status: {job['status']}",
-        ]
-        if job.get("output_path"):
-            lines.append(f"Output: {job['output_path']}")
-        return "\n".join(lines)
+        if plan.cli_job_id or plan.task_id:
+            job = get_cli_job(plan.cli_job_id or plan.task_id, root=root)
+        else:
+            job = latest_cli_job(root=root)
+            if not job:
+                return plan.reply or "No CLI jobs yet."
+        return render_cli_job_detail(job)
+    if action == "cli_session_status":
+        ref = plan.cli_job_id or plan.task_id or "latest"
+        session = latest_cli_session(root=root) if ref == "latest" else get_cli_session(ref, root=root)
+        if not session:
+            return plan.reply or "No CLI session yet."
+        return render_cli_session_detail(session)
     if action == "explain_dream":
         from engine.dreaming import get_dream
 
@@ -287,6 +352,36 @@ def execute_orchestration_plan(plan: OrchestrationPlan, *, root: Path = ROOT) ->
                 f"Project: {mission['project_name']}",
                 f"Status: {mission['status']}",
                 f"Risk: {mission['risk']}",
+            ]
+        )
+    if action == "start_cli_session":
+        tool_key = (plan.cli_tool or plan.project_name or plan.project_id or "").lower()
+        if not tool_key:
+            return plan.reply or "Please specify which CLI tool to start."
+        if not plan.description:
+            return plan.reply or "Please tell me what first prompt should be sent."
+        session, job = start_cli_session(tool_key, plan.description, root=root)
+        return "\n".join(
+            [
+                f"Started CLI session: {session['id']}",
+                f"Tool: {session['tool']}",
+                f"First job: {job['id']}",
+            ]
+        )
+    if action == "continue_cli_session":
+        ref = plan.cli_job_id or plan.task_id or "latest"
+        if not plan.description:
+            return plan.reply or "Please tell me what next prompt should be sent."
+        job = continue_cli_session(ref, plan.description, root=root)
+        return render_cli_job_detail(job)
+    if action == "close_cli_session":
+        ref = plan.cli_job_id or plan.task_id or "latest"
+        session = close_cli_session(ref, root=root)
+        return "\n".join(
+            [
+                f"Closed CLI session: {session['id']}",
+                f"Tool: {session['tool']}",
+                f"Steps: {session.get('step_count', 0)}",
             ]
         )
     if action == "open_cli_session":

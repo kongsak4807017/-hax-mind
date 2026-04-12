@@ -30,10 +30,21 @@ from engine.picoclaw_manager import list_remote_jobs, picoclaw_plan, picoclaw_st
 from engine.proposal_engine import list_proposals, update_proposal_status
 from engine.apply_engine import execute_proposal_safe
 from engine.cli_bridge import (
+    approve_cli_session,
+    close_cli_session,
     create_cli_improvement_proposal,
+    continue_cli_session,
     get_cli_job,
+    get_cli_session,
+    latest_cli_session,
+    latest_cli_job,
     open_cli_session,
+    render_cli_job_detail,
     render_cli_jobs_summary,
+    render_cli_session_detail,
+    render_cli_sessions_summary,
+    set_cli_session_profile,
+    start_cli_session,
     render_cli_tools_summary,
     run_cli_once,
 )
@@ -135,7 +146,7 @@ async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "HAX-Mind ready. Commands: /whoami /auth /status /restart /project add|list /task <project> <work> /tasks /taskstatus <id> /propose <task_id> /approve <proposal_id> /execute <proposal_id> /picoclaw status|worker status|plan|jobs|queue <approved_proposal_id> /cli tools|jobs|status <job_id>|open <tool> <prompt>|run <tool> <prompt>|improve /memory /recall <query> /phase3 now /clusters /decisions /team <topic> | /team plan|list|status <task_id> /dream now|latest|explain [dream_id|latest]|task <project_id> [dream_id|latest] /analyze repo <url> /report\nStructured task syntax for guarded real apply: /task <project_id> append|replace|create|delete <path> :: <content>"
+        "HAX-Mind ready. Commands: /whoami /auth /status /restart /project add|list /task <project> <work> /tasks /taskstatus <id> /propose <task_id> /approve <proposal_id> /execute <proposal_id> /picoclaw status|worker status|plan|jobs|queue <approved_proposal_id> /cli tools|jobs|sessions|session <id|latest>|latest|status <job_id>|start <tool> [profile] <prompt>|continue <session_id|latest> <prompt>|mode <session_id|latest> <profile>|approve <session_id|latest>|diff|close <session_id|latest>|open <tool> <prompt>|run <tool> <prompt>|improve /memory /recall <query> /phase3 now /clusters /decisions /team <topic> | /team plan|list|status <task_id> /dream now|latest|explain [dream_id|latest]|task <project_id> [dream_id|latest] /analyze repo <url> /report\nStructured task syntax for guarded real apply: /task <project_id> append|replace|create|delete <path> :: <content>"
     )
 
 
@@ -290,67 +301,211 @@ async def picoclaw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    action = context.args[0].lower() if context.args else "tools"
+    raw_args = list(context.args)
+    action = raw_args[0].lower() if raw_args else "tools"
+    tool_keys = {"codex", "omx", "gemini", "kimi"}
+    if action == "tool":
+        action = "tools"
+    if action in tool_keys:
+        if action in {"kimi", "gemini", "codex", "omx"}:
+            raw_args = ["start", *raw_args]
+            action = "start"
+        else:
+            raw_args = ["open", *raw_args]
+            action = "open"
+    elif action in {"เปิด", "open"} and len(raw_args) >= 2 and raw_args[1].lower() in tool_keys:
+        if raw_args[1].lower() in {"kimi", "gemini", "codex", "omx"}:
+            raw_args = ["start", *raw_args[1:]]
+            action = "start"
+        else:
+            action = "open"
+    elif action in {"รัน", "run"} and len(raw_args) >= 2 and raw_args[1].lower() in tool_keys:
+        action = "run"
+    elif action in {"latest", "proof", "หลักฐาน"}:
+        action = "latest"
     if action == "tools":
         await update.message.reply_text(render_cli_tools_summary())
         return
     if action == "jobs":
         await update.message.reply_text(render_cli_jobs_summary())
         return
-    if action == "status":
-        if len(context.args) < 2:
-            await update.message.reply_text("Usage: /cli status <job_id>")
+    if action == "sessions":
+        await update.message.reply_text(render_cli_sessions_summary())
+        return
+    if action == "latest":
+        session = latest_cli_session()
+        if session:
+            parts = [render_cli_session_detail(session)]
+            last_job_id = session.get("last_job_id")
+            if last_job_id:
+                try:
+                    parts.append("")
+                    parts.append(render_cli_job_detail(get_cli_job(last_job_id)))
+                except Exception:
+                    pass
+            await update.message.reply_text("\n".join(parts)[:4000])
+            return
+        job = latest_cli_job()
+        if not job:
+            await update.message.reply_text("No CLI jobs yet.")
+            return
+        await update.message.reply_text(render_cli_job_detail(job)[:4000])
+        return
+    if action == "session":
+        ref = raw_args[1] if len(raw_args) > 1 else "latest"
+        try:
+            session = latest_cli_session() if ref == "latest" else get_cli_session(ref)
+        except Exception as exc:
+            await update.message.reply_text(f"CLI session lookup failed: {exc}")
+            return
+        if not session:
+            await update.message.reply_text("No CLI session yet.")
+            return
+        await update.message.reply_text(render_cli_session_detail(session)[:4000])
+        return
+    if action == "mode":
+        if len(raw_args) < 3:
+            await update.message.reply_text("Usage: /cli mode <session_id|latest> <profile>")
             return
         try:
-            job = get_cli_job(context.args[1])
+            session = set_cli_session_profile(raw_args[1], raw_args[2])
         except Exception as exc:
-            await update.message.reply_text(f"CLI job lookup failed: {exc}")
+            await update.message.reply_text(f"CLI mode change failed: {exc}")
+            return
+        await update.message.reply_text(render_cli_session_detail(session)[:4000])
+        return
+    if action == "approve":
+        ref = raw_args[1] if len(raw_args) > 1 else "latest"
+        try:
+            session = approve_cli_session(ref)
+        except Exception as exc:
+            await update.message.reply_text(f"CLI approve failed: {exc}")
             return
         await update.message.reply_text(
             "\n".join(
                 [
-                    f"CLI job: {job['id']}",
-                    f"Tool: {job['tool']}",
-                    f"Mode: {job['mode']}",
-                    f"Status: {job['status']}",
-                    *( [f"Output: {job['output_path']}"] if job.get("output_path") else [] ),
-                    *( [f"Exit code: {job['exit_code']}"] if 'exit_code' in job else [] ),
+                    f"Approved CLI session: {session['id']}",
+                    f"Tool: {session['tool']}",
+                    f"Profile: {session.get('profile', 'default')}",
+                    "Use /cli continue latest <prompt> for the next step.",
                 ]
             )
         )
         return
-    if action == "open":
-        if len(context.args) < 3:
-            await update.message.reply_text("Usage: /cli open <codex|omx|gemini|kimi> <prompt>")
+    if action == "diff":
+        job = latest_cli_job()
+        if not job:
+            await update.message.reply_text("No CLI jobs yet.")
             return
-        try:
-            job = open_cli_session(context.args[1], " ".join(context.args[2:]))
-        except Exception as exc:
-            await update.message.reply_text(f"CLI open failed: {exc}")
+        diff = job.get("diff_excerpt")
+        if not diff:
+            await update.message.reply_text("No diff captured for the latest CLI job.")
             return
-        await update.message.reply_text(
-            f"Opened {job['tool']} interactive CLI.\nJob: {job['id']}\nPrompt: {job['prompt'][:200]}"
-        )
+        await update.message.reply_text(f"Latest CLI diff:\n{diff}"[:4000])
         return
-    if action == "run":
-        if len(context.args) < 3:
-            await update.message.reply_text("Usage: /cli run <codex|omx|gemini|kimi> <prompt>")
+    if action == "start":
+        if len(raw_args) < 3:
+            await update.message.reply_text("Usage: /cli start <kimi|gemini|codex|omx> [profile] <prompt>")
+            return
+        tool = raw_args[1].lower()
+        profile = None
+        prompt_index = 2
+        profile_map = {
+            "kimi": {"default", "thinking", "yolo"},
+            "gemini": {"default", "plan", "yolo"},
+            "codex": {"review", "default", "yolo"},
+            "omx": {"review", "default", "yolo"},
+        }
+        if tool in profile_map and len(raw_args) >= 4 and raw_args[2].lower() in profile_map[tool]:
+            profile = raw_args[2].lower()
+            prompt_index = 3
+        if len(raw_args) <= prompt_index:
+            await update.message.reply_text("Usage: /cli start <kimi|gemini|codex|omx> [profile] <prompt>")
             return
         try:
-            job = run_cli_once(context.args[1], " ".join(context.args[2:]))
+            session, job = start_cli_session(tool, " ".join(raw_args[prompt_index:]), profile=profile)
         except Exception as exc:
-            await update.message.reply_text(f"CLI run failed: {exc}")
+            await update.message.reply_text(f"CLI session start failed: {exc}")
             return
         await update.message.reply_text(
             "\n".join(
                 [
-                    f"CLI job completed: {job['id']}",
-                    f"Tool: {job['tool']}",
-                    f"Status: {job['status']}",
-                    *( [f"Output: {job['output_path']}"] if job.get("output_path") else [] ),
-                    *( [job['stdout_excerpt'][:1500]] if job.get("stdout_excerpt") else [] ),
+                    f"Started CLI session: {session['id']}",
+                    f"Tool: {session['tool']}",
+                    f"Profile: {session.get('profile', 'default')}",
+                    f"First job: {job['id']}",
+                    "Use /cli continue latest <prompt> to send the next step.",
                 ]
-            )[:4000]
+            )
+        )
+        return
+    if action == "continue":
+        if len(raw_args) < 3:
+            await update.message.reply_text("Usage: /cli continue <session_id|latest> <prompt>")
+            return
+        try:
+            job = continue_cli_session(raw_args[1], " ".join(raw_args[2:]))
+        except Exception as exc:
+            await update.message.reply_text(f"CLI continue failed: {exc}")
+            return
+        await update.message.reply_text(render_cli_job_detail(job)[:4000])
+        return
+    if action == "close":
+        ref = raw_args[1] if len(raw_args) > 1 else "latest"
+        try:
+            session = close_cli_session(ref)
+        except Exception as exc:
+            await update.message.reply_text(f"CLI close failed: {exc}")
+            return
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    f"Closed CLI session: {session['id']}",
+                    f"Tool: {session['tool']}",
+                    f"Steps: {session.get('step_count', 0)}",
+                ]
+            )
+        )
+        return
+    if action == "status":
+        if len(raw_args) < 2:
+            await update.message.reply_text("Usage: /cli status <job_id>")
+            return
+        try:
+            job = get_cli_job(raw_args[1])
+        except Exception as exc:
+            await update.message.reply_text(f"CLI job lookup failed: {exc}")
+            return
+        await update.message.reply_text(render_cli_job_detail(job)[:4000])
+        return
+    if action == "open":
+        if len(raw_args) >= 2 and raw_args[0].lower() in {"เปิด", "open"}:
+            raw_args = ["open", *raw_args[1:]]
+        if len(raw_args) < 3:
+            await update.message.reply_text("Usage: /cli open <codex|omx|gemini|kimi> <prompt>")
+            return
+        try:
+            job = open_cli_session(raw_args[1], " ".join(raw_args[2:]))
+        except Exception as exc:
+            await update.message.reply_text(f"CLI open failed: {exc}")
+            return
+        await update.message.reply_text(
+            f"Opened {job['tool']} interactive CLI.\nJob: {job['id']}\nPrompt: {job['prompt'][:200]}\nUse /cli latest for proof."
+        )
+        return
+    if action == "run":
+        if len(raw_args) >= 2 and raw_args[0].lower() in {"รัน", "run"}:
+            raw_args = ["run", *raw_args[1:]]
+        if len(raw_args) < 3:
+            await update.message.reply_text("Usage: /cli run <codex|omx|gemini|kimi> <prompt>")
+            return
+        try:
+            job = run_cli_once(raw_args[1], " ".join(raw_args[2:]))
+        except Exception as exc:
+            await update.message.reply_text(f"CLI run failed: {exc}")
+            return
+        await update.message.reply_text(
+            render_cli_job_detail(job)[:4000]
         )
         return
     if action == "improve":
@@ -365,7 +520,7 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         )
         return
-    await update.message.reply_text("Usage: /cli tools | jobs | status <job_id> | open <tool> <prompt> | run <tool> <prompt> | improve")
+    await update.message.reply_text("Usage: /cli tools | jobs | sessions | session <id|latest> | latest | status <job_id> | start <tool> [profile] <prompt> | continue <session_id|latest> <prompt> | mode <session_id|latest> <profile> | approve <session_id|latest> | diff | close <session_id|latest> | open <tool> <prompt> | run <tool> <prompt> | improve\nShort forms: /cli kimi <prompt>, /cli gemini <prompt>, /cli codex <prompt>, /cli omx <prompt>, /cli เปิด kimi <prompt>, /cli รัน gemini <prompt>")
 
 
 async def taskstatus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

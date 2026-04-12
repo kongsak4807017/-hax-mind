@@ -255,7 +255,16 @@ If you want the hidden/background recovery path instead, keep using:
 /nightly now
 /cli tools
 /cli jobs
+/cli sessions
+/cli session <id|latest>
+/cli latest
 /cli status <job_id>
+/cli start <kimi|gemini|codex|omx> [profile] <prompt>
+/cli continue <session_id|latest> <prompt>
+/cli mode <session_id|latest> <profile>
+/cli approve <session_id|latest>
+/cli diff
+/cli close <session_id|latest>
 /cli open <codex|omx|gemini|kimi> <prompt>
 /cli run <codex|omx|gemini|kimi> <prompt>
 /cli improve
@@ -289,6 +298,17 @@ Use:
 
 ```text
 /cli tools
+/cli sessions
+/cli start kimi thinking วางแผนงาน hax-mind ใน workspace
+/cli start gemini plan สรุปสิ่งที่ต้องทำต่อใน repo นี้
+/cli start codex review inspect the repo and suggest the safest next code changes
+/cli start omx review inspect the repo and suggest the safest orchestration next step
+/cli continue latest แตกเป็น step ถัดไป
+/cli session latest
+/cli approve latest
+/cli diff
+/cli close latest
+/cli latest
 /cli open codex inspect the current workspace and suggest next steps
 /cli run gemini summarize the current repo status
 /cli jobs
@@ -297,6 +317,17 @@ Use:
 ```
 
 This gives Telegram-triggered local CLI delegation without exposing arbitrary shell execution.
+
+Short forms also work now:
+
+```text
+/cli kimi อธิบายงาน hax-mind ใน workspace
+/cli gemini plan สรุป repo นี้
+/cli codex review inspect current repo safely
+/cli omx review inspect current repo safely
+/cli เปิด kimi ใน workspace แล้วอธิบายงาน hax-mind
+/cli รัน gemini สรุปสถานะ repo ตอนนี้
+```
 
 Dreams are memory-reflection artifacts, not scheduled tasks. If you want to turn the latest dream into real work, create a task from it:
 

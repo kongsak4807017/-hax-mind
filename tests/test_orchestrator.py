@@ -128,3 +128,21 @@ def test_router_salvages_truncated_json(monkeypatch) -> None:
 
     assert payload["action"] == "help"
     assert payload["reply"]
+
+
+def test_route_message_to_plan_shortcuts_cli_open(tmp_path: Path) -> None:
+    register_project("HAXMind", str(tmp_path), root=tmp_path)
+
+    plan = route_message_to_plan("เปิด kimi cli ใน workspace แล้วอธิบายงาน hax-mind", root=tmp_path)
+
+    assert plan.action == "start_cli_session"
+    assert plan.cli_tool == "kimi"
+
+
+def test_route_message_to_plan_shortcuts_kimi_continue(tmp_path: Path) -> None:
+    register_project("HAXMind", str(tmp_path), root=tmp_path)
+
+    plan = route_message_to_plan("ต่อเลย kimi ช่วยแตก step ถัดไป", root=tmp_path)
+
+    assert plan.action == "continue_cli_session"
+    assert plan.cli_tool == "kimi"

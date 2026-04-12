@@ -17,7 +17,16 @@ from engine.utils import ROOT, ensure_dir, now_iso
 
 CLI_JOBS_DIR = ROOT / "runtime" / "cli_jobs"
 CLI_OUTPUTS_DIR = CLI_JOBS_DIR / "outputs"
+CLI_LAUNCHERS_DIR = CLI_JOBS_DIR / "launchers"
+CLI_SESSIONS_DIR = CLI_JOBS_DIR / "sessions"
 MAX_PROMPT_LENGTH = 4000
+
+CLI_TOOL_PROFILES: dict[str, tuple[str, ...]] = {
+    "kimi": ("default", "thinking", "yolo"),
+    "gemini": ("default", "plan", "yolo"),
+    "codex": ("review", "default", "yolo"),
+    "omx": ("review", "default", "yolo"),
+}
 
 
 @dataclass(frozen=True)
@@ -26,18 +35,23 @@ class CLITool:
     title: str
     mode: str  # interactive | one_shot | hybrid
     executable: str
+    scripted_session: bool = False
 
 
 ALLOWED_CLI_TOOLS: dict[str, CLITool] = {
-    "codex": CLITool("codex", "OpenAI Codex CLI", "hybrid", os.path.join(os.environ.get("APPDATA", ""), "npm", "codex.cmd")),
-    "omx": CLITool("omx", "oh-my-codex", "hybrid", os.path.join(os.environ.get("APPDATA", ""), "npm", "omx.cmd")),
-    "gemini": CLITool("gemini", "Gemini CLI", "hybrid", os.path.join(os.environ.get("APPDATA", ""), "npm", "gemini.cmd")),
-    "kimi": CLITool("kimi", "Kimi CLI", "hybrid", shutil.which("kimi") or "kimi"),
+    "codex": CLITool("codex", "OpenAI Codex CLI", "hybrid", os.path.join(os.environ.get("APPDATA", ""), "npm", "codex.cmd"), scripted_session=True),
+    "omx": CLITool("omx", "oh-my-codex", "hybrid", os.path.join(os.environ.get("APPDATA", ""), "npm", "omx.cmd"), scripted_session=True),
+    "gemini": CLITool("gemini", "Gemini CLI", "hybrid", os.path.join(os.environ.get("APPDATA", ""), "npm", "gemini.cmd"), scripted_session=True),
+    "kimi": CLITool("kimi", "Kimi CLI", "hybrid", shutil.which("kimi") or "kimi", scripted_session=True),
 }
 
 
 def _job_path(job_id: str, root: Path = ROOT) -> Path:
     return root / "runtime" / "cli_jobs" / f"{job_id}.json"
+
+
+def _session_path(session_id: str, root: Path = ROOT) -> Path:
+    return root / "runtime" / "cli_jobs" / "sessions" / f"{session_id}.json"
 
 
 def _safe_tool_key(value: str) -> str:
@@ -56,6 +70,14 @@ def _sanitize_prompt(prompt: str) -> str:
     return text
 
 
+def _normalize_profile(tool_key: str, profile: str | None) -> str:
+    allowed = CLI_TOOL_PROFILES.get(tool_key, ("default",))
+    chosen = (profile or allowed[0]).strip().lower()
+    if chosen not in allowed:
+        raise ValueError(f"Unsupported profile '{profile}' for {tool_key}. Allowed: {', '.join(allowed)}")
+    return chosen
+
+
 def detect_cli_tools() -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for key, tool in ALLOWED_CLI_TOOLS.items():
@@ -68,6 +90,8 @@ def detect_cli_tools() -> list[dict[str, Any]]:
                 "mode": tool.mode,
                 "executable": path,
                 "available": available,
+                "scripted_session": tool.scripted_session,
+                "profiles": list(CLI_TOOL_PROFILES.get(tool.key, ("default",))),
             }
         )
     return records
@@ -93,6 +117,8 @@ def _cli_job_record(
 ) -> dict[str, Any]:
     ensure_dir(root / "runtime" / "cli_jobs")
     ensure_dir(root / "runtime" / "cli_jobs" / "outputs")
+    ensure_dir(root / "runtime" / "cli_jobs" / "launchers")
+    ensure_dir(root / "runtime" / "cli_jobs" / "sessions")
     job_id = f"clijob_{now_iso()[:10].replace('-', '')}_{uuid.uuid4().hex[:8]}"
     record = {
         "id": job_id,
@@ -109,6 +135,12 @@ def _cli_job_record(
 
 def _save_job(record: dict[str, Any], *, root: Path = ROOT) -> dict[str, Any]:
     _job_path(record["id"], root=root).write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return record
+
+
+def _save_session(record: dict[str, Any], *, root: Path = ROOT) -> dict[str, Any]:
+    ensure_dir(root / "runtime" / "cli_jobs" / "sessions")
+    _session_path(record["id"], root=root).write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return record
 
 
@@ -131,6 +163,35 @@ def get_cli_job(job_id: str, *, root: Path = ROOT) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def latest_cli_job(*, root: Path = ROOT) -> dict[str, Any] | None:
+    jobs = list_cli_jobs(root=root, limit=1)
+    return jobs[0] if jobs else None
+
+
+def list_cli_sessions(*, root: Path = ROOT, limit: int = 20) -> list[dict[str, Any]]:
+    directory = root / "runtime" / "cli_jobs" / "sessions"
+    directory.mkdir(parents=True, exist_ok=True)
+    records: list[dict[str, Any]] = []
+    for path in sorted(directory.glob("clisession_*.json"), key=lambda item: item.stat().st_mtime, reverse=True)[:limit]:
+        try:
+            records.append(json.loads(path.read_text(encoding="utf-8")))
+        except json.JSONDecodeError:
+            continue
+    return records
+
+
+def get_cli_session(session_id: str, *, root: Path = ROOT) -> dict[str, Any]:
+    path = _session_path(session_id, root=root)
+    if not path.exists():
+        raise FileNotFoundError(f"CLI session not found: {session_id}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def latest_cli_session(*, root: Path = ROOT) -> dict[str, Any] | None:
+    sessions = list_cli_sessions(root=root, limit=1)
+    return sessions[0] if sessions else None
+
+
 def _interactive_command(tool: CLITool, prompt: str, cwd: Path) -> list[str]:
     if tool.key == "codex":
         return [tool.executable, "-C", str(cwd), prompt]
@@ -141,6 +202,28 @@ def _interactive_command(tool: CLITool, prompt: str, cwd: Path) -> list[str]:
     if tool.key == "kimi":
         return [tool.executable, "--work-dir", str(cwd), "--prompt", prompt]
     raise ValueError(f"No interactive command profile for {tool.key}")
+
+
+def _windows_quote(arg: str) -> str:
+    return subprocess.list2cmdline([arg])
+
+
+def _write_windows_launcher(*, record: dict[str, Any], command: list[str], root: Path) -> Path:
+    launcher_path = root / "runtime" / "cli_jobs" / "launchers" / f"{record['id']}.cmd"
+    command_line = " ".join(_windows_quote(str(part)) for part in command)
+    content = "\r\n".join(
+        [
+            "@echo off",
+            "setlocal",
+            f'cd /d "{record["cwd"]}"',
+            command_line,
+            "echo.",
+            "echo [HAX-Mind] CLI session finished. Press any key to close this window.",
+            "pause >nul",
+        ]
+    ) + "\r\n"
+    launcher_path.write_text(content, encoding="utf-8")
+    return launcher_path
 
 
 def _oneshot_command(tool: CLITool, prompt: str, cwd: Path) -> list[str]:
@@ -155,16 +238,83 @@ def _oneshot_command(tool: CLITool, prompt: str, cwd: Path) -> list[str]:
     raise ValueError(f"No one-shot command profile for {tool.key}")
 
 
+def _session_turn_command(tool: CLITool, session_id: str, prompt: str, cwd: Path) -> list[str]:
+    if tool.key == "kimi":
+        return [tool.executable, "--work-dir", str(cwd), "--session", session_id, "--print", "--prompt", prompt, "--output-format", "text"]
+    raise ValueError(f"Scripted sessions are not supported for {tool.key}")
+
+
+def _run_subprocess(command: list[str], *, cwd: Path, timeout: int) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
+
+
+def _extract_gemini_session_id(output: str) -> str | None:
+    match = re.search(r"\[([0-9a-fA-F-]{8,})\]", output)
+    return match.group(1) if match else None
+
+
+def _list_gemini_sessions(cwd: Path) -> str:
+    tool = _available_tool_or_raise("gemini")
+    result = _run_subprocess([tool.executable, "--list-sessions"], cwd=cwd, timeout=60)
+    return result.stdout
+
+
+def _extract_codex_thread_id(output: str) -> str | None:
+    for line in output.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if payload.get("type") == "thread.started":
+            return payload.get("thread_id")
+    return None
+
+
+def _extract_codex_final_message(output: str) -> str:
+    last_text = ""
+    for line in output.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if payload.get("type") == "item.completed":
+            item = payload.get("item") or {}
+            if item.get("type") == "agent_message":
+                last_text = item.get("text") or last_text
+    return last_text
+
+
+def _git_diff_excerpt(cwd: Path) -> str:
+    try:
+        result = _run_subprocess(["git", "diff", "--stat"], cwd=cwd, timeout=30)
+    except Exception:
+        return ""
+    return result.stdout.strip()[:2000]
+
+
 def open_cli_session(tool_key: str, prompt: str, *, root: Path = ROOT, cwd: Path | None = None) -> dict[str, Any]:
     tool = _available_tool_or_raise(tool_key)
     safe_prompt = _sanitize_prompt(prompt)
     cwd = (cwd or root).resolve()
     record = _cli_job_record(tool_key=tool.key, prompt=safe_prompt, mode="interactive", root=root, cwd=cwd)
     command = _interactive_command(tool, safe_prompt, cwd)
-    subprocess.Popen(
-        ["cmd.exe", "/c", "start", f'"HAX-Mind {tool.key}"', "cmd.exe", "/k", *command],
-        cwd=str(cwd),
-    )
+    if os.name == "nt":
+        launcher_path = _write_windows_launcher(record=record, command=command, root=root)
+        popen_command = ["cmd.exe", "/k", str(launcher_path)]
+        subprocess.Popen(
+            popen_command,
+            cwd=str(cwd),
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+        )
+        record["launcher_path"] = str(launcher_path.relative_to(root))
+    else:
+        subprocess.Popen(command, cwd=str(cwd))
     record["status"] = "opened"
     record["opened_at"] = now_iso()
     record["command_preview"] = command
@@ -225,6 +375,62 @@ def render_cli_jobs_summary(*, root: Path = ROOT, limit: int = 10) -> str:
     return "\n".join(f"{job['id']} | {job['tool']} | {job['mode']} | {job['status']}" for job in jobs)
 
 
+def render_cli_sessions_summary(*, root: Path = ROOT, limit: int = 10) -> str:
+    sessions = list_cli_sessions(root=root, limit=limit)
+    if not sessions:
+        return "No CLI sessions yet."
+    return "\n".join(
+        f"{session['id']} | {session['tool']} | steps={session.get('step_count', 0)} | status={session.get('status', 'open')}"
+        for session in sessions
+    )
+
+
+def render_cli_job_detail(job: dict[str, Any]) -> str:
+    lines = [
+        f"CLI job: {job['id']}",
+        f"Tool: {job['tool']}",
+        f"Mode: {job['mode']}",
+        f"Status: {job['status']}",
+        f"CWD: {job.get('cwd', '-')}",
+        f"Created at: {job.get('created_at', '-')}",
+    ]
+    if job.get("opened_at"):
+        lines.append(f"Opened at: {job['opened_at']}")
+    if job.get("finished_at"):
+        lines.append(f"Finished at: {job['finished_at']}")
+    if job.get("output_path"):
+        lines.append(f"Output: {job['output_path']}")
+    if job.get("command_preview"):
+        lines.append("Command preview:")
+        lines.append(" ".join(str(part) for part in job["command_preview"]))
+    if job.get("stdout_excerpt"):
+        lines.append("Output excerpt:")
+        lines.append(job["stdout_excerpt"][:1500])
+    return "\n".join(lines)
+
+
+def render_cli_session_detail(session: dict[str, Any]) -> str:
+    lines = [
+        f"CLI session: {session['id']}",
+        f"Tool: {session['tool']}",
+        f"Status: {session.get('status', 'open')}",
+        f"Profile: {session.get('profile', 'default')}",
+        f"Approved: {session.get('approved', False)}",
+        f"Step count: {session.get('step_count', 0)}",
+        f"CWD: {session.get('cwd', '-')}",
+        f"Created at: {session.get('created_at', '-')}",
+        f"Last job: {session.get('last_job_id', '-')}",
+    ]
+    if session.get("closed_at"):
+        lines.append(f"Closed at: {session['closed_at']}")
+    history = session.get("history", [])
+    if history:
+        lines.append("Recent prompts:")
+        for item in history[-3:]:
+            lines.append(f"- [{item['step']}] {item['prompt'][:120]}")
+    return "\n".join(lines)
+
+
 def create_cli_improvement_proposal(*, root: Path = ROOT) -> dict[str, Any]:
     jobs = list_cli_jobs(root=root, limit=50)
     failed = [job for job in jobs if job.get("status") in {"failed", "timeout"}]
@@ -259,3 +465,144 @@ def create_cli_improvement_proposal(*, root: Path = ROOT) -> dict[str, Any]:
         metadata={"failed_tools": failed_tools, "recent_job_count": len(jobs)},
         root=root,
     )
+
+
+def _run_scripted_turn(tool: CLITool, session: dict[str, Any], prompt: str, *, root: Path, timeout: int) -> dict[str, Any]:
+    safe_prompt = _sanitize_prompt(prompt)
+    cwd = Path(session["cwd"])
+    record = _cli_job_record(tool_key=tool.key, prompt=safe_prompt, mode="session_turn", root=root, cwd=cwd)
+
+    if tool.key == "kimi":
+        command = _session_turn_command(tool, session["id"], safe_prompt, cwd)
+        result = _run_subprocess(command, cwd=cwd, timeout=timeout)
+        stdout = result.stdout[-12000:]
+        stderr = result.stderr[-4000:]
+        external_session_id = session.get("external_session_id") or session["id"]
+        final_message = stdout
+    elif tool.key == "gemini":
+        approval_mode = session.get("profile", "default")
+        command = [tool.executable]
+        if session.get("external_session_id"):
+            command += ["--resume", session["external_session_id"]]
+        command += ["--prompt", safe_prompt, "--output-format", "text", "--approval-mode", approval_mode]
+        result = _run_subprocess(command, cwd=cwd, timeout=timeout)
+        stdout = result.stdout[-12000:]
+        stderr = result.stderr[-4000:]
+        external_session_id = session.get("external_session_id") or _extract_gemini_session_id(_list_gemini_sessions(cwd))
+        final_message = stdout
+    elif tool.key in {"codex", "omx"}:
+        profile = session.get("profile", "review")
+        base = [tool.executable, "exec", "--json", "--skip-git-repo-check"]
+        if profile == "review":
+            base += ["-s", "read-only"]
+        elif profile == "default":
+            base += ["-s", "workspace-write"]
+        elif profile == "yolo":
+            base += ["--dangerously-bypass-approvals-and-sandbox"]
+        if session.get("external_session_id"):
+            command = [*base, "resume", session["external_session_id"], safe_prompt]
+        else:
+            command = [*base, safe_prompt]
+        result = _run_subprocess(command, cwd=cwd, timeout=timeout)
+        stdout = result.stdout[-12000:]
+        stderr = result.stderr[-4000:]
+        external_session_id = session.get("external_session_id") or _extract_codex_thread_id(stdout)
+        final_message = _extract_codex_final_message(stdout) or stdout
+    else:
+        raise ValueError(f"Scripted sessions are not supported for {tool.key}")
+
+    output_path = root / "runtime" / "cli_jobs" / "outputs" / f"{record['id']}.txt"
+    output_path.write_text(stdout + ("\n\n[stderr]\n" + stderr if stderr else ""), encoding="utf-8")
+    record.update(
+        {
+            "status": "completed" if result.returncode == 0 else "failed",
+            "exit_code": result.returncode,
+            "finished_at": now_iso(),
+            "stdout_excerpt": final_message[:2000],
+            "stderr_excerpt": stderr[:1000],
+            "output_path": str(output_path.relative_to(root)),
+            "command_preview": command,
+            "session_id": session["id"],
+        }
+    )
+    if tool.key in {"codex", "omx"}:
+        diff_excerpt = _git_diff_excerpt(cwd)
+        if diff_excerpt:
+            record["diff_excerpt"] = diff_excerpt
+
+    _save_job(record, root=root)
+    session["step_count"] = int(session.get("step_count", 0)) + 1
+    session["last_job_id"] = record["id"]
+    session["external_session_id"] = external_session_id
+    session.setdefault("history", []).append({"step": session["step_count"], "prompt": safe_prompt, "job_id": record["id"], "status": record["status"]})
+    _save_session(session, root=root)
+    log_event("cli_session", f"Ran {tool.key} session {session['id']} step={session['step_count']} status={record['status']}", topic="cli", importance="high")
+    return record
+
+
+def start_cli_session(tool_key: str, prompt: str, *, root: Path = ROOT, cwd: Path | None = None, timeout: int = 180, profile: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+    tool = _available_tool_or_raise(tool_key)
+    if not tool.scripted_session:
+        raise ValueError(f"Tool '{tool.key}' does not support step sessions yet.")
+    cwd = (cwd or root).resolve()
+    session = {
+        "id": f"clisession_{now_iso()[:10].replace('-', '')}_{uuid.uuid4().hex[:8]}",
+        "tool": tool.key,
+        "cwd": str(cwd),
+        "created_at": now_iso(),
+        "status": "open",
+        "profile": _normalize_profile(tool.key, profile),
+        "step_count": 0,
+        "history": [],
+        "last_job_id": None,
+        "approved": False,
+    }
+    if tool.key in {"gemini", "kimi"}:
+        session["approved"] = True
+    _save_session(session, root=root)
+    job = continue_cli_session(session["id"], prompt, root=root, timeout=timeout)
+    return get_cli_session(session["id"], root=root), job
+
+
+def continue_cli_session(session_ref: str, prompt: str, *, root: Path = ROOT, timeout: int = 180) -> dict[str, Any]:
+    session = latest_cli_session(root=root) if session_ref == "latest" else get_cli_session(session_ref, root=root)
+    if not session:
+        raise FileNotFoundError("No CLI session exists yet.")
+    tool = _available_tool_or_raise(session["tool"])
+    if not tool.scripted_session:
+        raise ValueError(f"Tool '{tool.key}' does not support scripted continuation.")
+    if tool.key in {"codex", "omx"} and session.get("profile", "review") != "review" and not session.get("approved", False):
+        raise PermissionError(f"{tool.key.upper()} session requires approval before continuing in write-capable mode. Use /cli approve <session_id|latest> first.")
+    return _run_scripted_turn(tool, session, prompt, root=root, timeout=timeout)
+
+
+def set_cli_session_profile(session_ref: str, profile: str, *, root: Path = ROOT) -> dict[str, Any]:
+    session = latest_cli_session(root=root) if session_ref == "latest" else get_cli_session(session_ref, root=root)
+    if not session:
+        raise FileNotFoundError("No CLI session exists yet.")
+    session["profile"] = _normalize_profile(session["tool"], profile)
+    if session["tool"] in {"codex", "omx"} and session["profile"] == "review":
+        session["approved"] = True
+    _save_session(session, root=root)
+    return session
+
+
+def approve_cli_session(session_ref: str, *, root: Path = ROOT) -> dict[str, Any]:
+    session = latest_cli_session(root=root) if session_ref == "latest" else get_cli_session(session_ref, root=root)
+    if not session:
+        raise FileNotFoundError("No CLI session exists yet.")
+    session["approved"] = True
+    if session["tool"] in {"codex", "omx"} and session.get("profile") == "review":
+        session["profile"] = "default"
+    _save_session(session, root=root)
+    return session
+
+
+def close_cli_session(session_ref: str, *, root: Path = ROOT) -> dict[str, Any]:
+    session = latest_cli_session(root=root) if session_ref == "latest" else get_cli_session(session_ref, root=root)
+    if not session:
+        raise FileNotFoundError("No CLI session exists yet.")
+    session["status"] = "closed"
+    session["closed_at"] = now_iso()
+    _save_session(session, root=root)
+    return session
