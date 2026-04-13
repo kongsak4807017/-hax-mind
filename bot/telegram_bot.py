@@ -443,33 +443,145 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if len(raw_args) <= prompt_index:
             await update.message.reply_text("Usage: /cli start <kimi|gemini|codex|omx> [profile] <prompt>")
             return
-        try:
-            session, job = start_cli_session(tool, " ".join(raw_args[prompt_index:]), profile=profile)
-        except Exception as exc:
-            await update.message.reply_text(f"CLI session start failed: {exc}")
-            return
-        await update.message.reply_text(
-            "\n".join(
-                [
-                    f"Started CLI session: {session['id']}",
-                    f"Tool: {session['tool']}",
-                    f"Profile: {session.get('profile', 'default')}",
-                    f"First job: {job['id']}",
-                    "Use /cli continue latest <prompt> to send the next step.",
-                ]
-            )
+        
+        prompt_text = " ".join(raw_args[prompt_index:])
+        
+        # Step 1: Acknowledge command
+        status_msg = await update.message.reply_text(
+            f"[1/4] รับคำสั่งแล้ว\n"
+            f"Tool: {tool}\n"
+            f"Profile: {profile or 'default'}\n"
+            f"กำลังตรวจสอบ CLI tool..."
         )
+        
+        try:
+            # Step 2: Validate tool availability
+            from engine.cli_bridge import _available_tool_or_raise
+            try:
+                tool_obj = _available_tool_or_raise(tool)
+                await status_msg.edit_text(
+                    f"[2/4] พบ CLI tool: {tool_obj.title}\n"
+                    f"Path: {tool_obj.executable}\n"
+                    f"กำลังสร้าง session..."
+                )
+            except FileNotFoundError as e:
+                await status_msg.edit_text(f"[ERROR] ไม่พบ CLI tool: {e}")
+                return
+            
+            # Step 3: Create session
+            await status_msg.edit_text(
+                f"[2/4] พบ CLI tool: {tool}\n"
+                f"[3/4] กำลังสร้าง session และสั่งให้ CLI ทำงาน...\n"
+                f"Prompt: {prompt_text[:100]}..."
+            )
+            
+            session, job = start_cli_session(tool, prompt_text, profile=profile)
+            
+            # Step 4: Report completion
+            job_status = job.get('status', 'unknown')
+            exit_code = job.get('exit_code', 'N/A')
+            
+            result_lines = [
+                f"[4/4] เสร็จสิ้น!",
+                f"",
+                f"Session: {session['id']}",
+                f"Tool: {session['tool']}",
+                f"Profile: {session.get('profile', 'default')}",
+                f"Job: {job['id']}",
+                f"Status: {job_status}",
+            ]
+            if exit_code != 'N/A':
+                result_lines.append(f"Exit code: {exit_code}")
+            if job.get('stdout_excerpt'):
+                result_lines.append(f"")
+                result_lines.append(f"Output preview:")
+                result_lines.append(f"```")
+                result_lines.append(job['stdout_excerpt'][:1500])
+                result_lines.append(f"```")
+            
+            result_lines.append(f"")
+            result_lines.append(f"Use /cli continue latest <prompt> for next step")
+            
+            await status_msg.edit_text("\n".join(result_lines), parse_mode="Markdown")
+            
+        except Exception as exc:
+            import traceback
+            error_detail = traceback.format_exc()
+            await status_msg.edit_text(
+                f"[ERROR] CLI session start failed:\n"
+                f"{exc}\n\n"
+                f"รายละเอียด:\n"
+                f"```\n{error_detail[-500:]}\n```",
+                parse_mode="Markdown"
+            )
+            return
         return
     if action == "continue":
         if len(raw_args) < 3:
             await update.message.reply_text("Usage: /cli continue <session_id|latest> <prompt>")
             return
+        
+        session_ref = raw_args[1]
+        prompt_text = " ".join(raw_args[2:])
+        
+        # Step 1: Acknowledge
+        status_msg = await update.message.reply_text(
+            f"[1/3] รับคำสั่ง continue session\n"
+            f"Session: {session_ref}\n"
+            f"กำลังค้นหา session..."
+        )
+        
         try:
-            job = continue_cli_session(raw_args[1], " ".join(raw_args[2:]))
+            # Step 2: Get session info
+            from engine.cli_bridge import get_cli_session, latest_cli_session
+            session = latest_cli_session() if session_ref == "latest" else get_cli_session(session_ref)
+            if not session:
+                await status_msg.edit_text(f"[ERROR] ไม่พบ session: {session_ref}")
+                return
+            
+            await status_msg.edit_text(
+                f"[2/3] พบ session: {session['id']}\n"
+                f"Tool: {session['tool']}\n"
+                f"Step ก่อนหน้า: {session.get('step_count', 0)}\n"
+                f"กำลังส่ง prompt ให้ CLI..."
+            )
+            
+            # Step 3: Continue session
+            job = continue_cli_session(session_ref, prompt_text)
+            
+            # Report result
+            job_status = job.get('status', 'unknown')
+            
+            result_lines = [
+                f"[3/3] เสร็จสิ้น!",
+                f"",
+                f"Job: {job['id']}",
+                f"Session: {job.get('session_id', 'N/A')}",
+                f"Status: {job_status}",
+            ]
+            if job.get('stdout_excerpt'):
+                result_lines.append(f"")
+                result_lines.append(f"Output:")
+                result_lines.append(f"```")
+                result_lines.append(job['stdout_excerpt'][:2000])
+                result_lines.append(f"```")
+            
+            result_lines.append(f"")
+            result_lines.append(f"Use /cli continue latest <prompt> for next step")
+            
+            await status_msg.edit_text("\n".join(result_lines), parse_mode="Markdown")
+            
         except Exception as exc:
-            await update.message.reply_text(f"CLI continue failed: {exc}")
+            import traceback
+            error_detail = traceback.format_exc()
+            await status_msg.edit_text(
+                f"[ERROR] CLI continue failed:\n"
+                f"{exc}\n\n"
+                f"รายละเอียด:\n"
+                f"```\n{error_detail[-500:]}\n```",
+                parse_mode="Markdown"
+            )
             return
-        await update.message.reply_text(render_cli_job_detail(job)[:4000])
         return
     if action == "close":
         ref = raw_args[1] if len(raw_args) > 1 else "latest"
@@ -520,24 +632,87 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if len(raw_args) < 3:
             await update.message.reply_text("Usage: /cli open <codex|omx|gemini|kimi> <prompt>")
             return
-        try:
-            job = open_cli_session(raw_args[1], " ".join(raw_args[2:]))
-        except Exception as exc:
-            await update.message.reply_text(f"CLI open failed: {exc}")
-            return
-        # Wait a moment for output to be generated
-        import asyncio
-        await asyncio.sleep(3)
-        initial_output = get_cli_output(job['id'])
-        await update.message.reply_text(
-            f"Opened {job['tool']} interactive CLI.\n"
-            f"Job: {job['id']}\n"
-            f"Prompt: {job['prompt'][:200]}\n\n"
-            f"Initial output:\n```\n{initial_output[:3000]}\n```\n\n"
-            f"CLI window is open on your desktop.\n"
-            f"Use /cli output to get latest output.",
-            parse_mode="Markdown"
+        
+        tool = raw_args[1].lower()
+        prompt_text = " ".join(raw_args[2:])
+        
+        # Step 1: Acknowledge command
+        status_msg = await update.message.reply_text(
+            f"[1/4] รับคำสั่งเปิด CLI (Interactive Mode)\n"
+            f"Tool: {tool}\n"
+            f"กำลังตรวจสอบ CLI tool..."
         )
+        
+        try:
+            # Step 2: Validate tool
+            from engine.cli_bridge import _available_tool_or_raise
+            try:
+                tool_obj = _available_tool_or_raise(tool)
+                await status_msg.edit_text(
+                    f"[2/4] พบ CLI tool: {tool_obj.title}\n"
+                    f"Path: {tool_obj.executable}\n"
+                    f"กำลังสร้าง job และ launcher..."
+                )
+            except FileNotFoundError as e:
+                await status_msg.edit_text(f"[ERROR] ไม่พบ CLI tool: {e}")
+                return
+            
+            # Step 3: Open CLI session
+            await status_msg.edit_text(
+                f"[2/4] พบ CLI tool: {tool}\n"
+                f"[3/4] กำลังสร้าง launcher และเปิดหน้าต่าง CLI...\n"
+                f"Prompt: {prompt_text[:100]}..."
+            )
+            
+            job = open_cli_session(tool, prompt_text)
+            
+            # Step 4: Wait and get initial output
+            await status_msg.edit_text(
+                f"[3/4] เปิด CLI window แล้ว\n"
+                f"Job ID: {job['id']}\n"
+                f"[4/4] รอ CLI เริ่มต้น (3 วินาที)..."
+            )
+            
+            import asyncio
+            await asyncio.sleep(3)
+            
+            initial_output = get_cli_output(job['id'])
+            
+            result_lines = [
+                f"[4/4] เสร็จสิ้น! CLI window เปิดแล้ว",
+                f"",
+                f"Job: {job['id']}",
+                f"Tool: {job['tool']}",
+                f"Status: {job['status']}",
+                f"Output file: {job.get('output_path', 'N/A')}",
+                f"",
+                f"Initial output preview:",
+                f"```",
+            ]
+            
+            if initial_output and initial_output != "Output file not yet created. CLI may still be starting up.":
+                result_lines.append(initial_output[:2000])
+            else:
+                result_lines.append("(CLI ยังเริ่มต้น หรือยังไม่มี output)")
+            
+            result_lines.append(f"```")
+            result_lines.append(f"")
+            result_lines.append(f"Window เปิดอยู่บน desktop ของคุณ")
+            result_lines.append(f"ใช้ `/cli output` เพื่อดึง output ล่าสุด")
+            
+            await status_msg.edit_text("\n".join(result_lines), parse_mode="Markdown")
+            
+        except Exception as exc:
+            import traceback
+            error_detail = traceback.format_exc()
+            await status_msg.edit_text(
+                f"[ERROR] CLI open failed:\n"
+                f"{exc}\n\n"
+                f"รายละเอียด:\n"
+                f"```\n{error_detail[-500:]}\n```",
+                parse_mode="Markdown"
+            )
+            return
         return
     if action == "run":
         if len(raw_args) >= 2 and raw_args[0].lower() in {"รัน", "run"}:
@@ -545,14 +720,78 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if len(raw_args) < 3:
             await update.message.reply_text("Usage: /cli run <codex|omx|gemini|kimi> <prompt>")
             return
-        try:
-            job = run_cli_once(raw_args[1], " ".join(raw_args[2:]))
-        except Exception as exc:
-            await update.message.reply_text(f"CLI run failed: {exc}")
-            return
-        await update.message.reply_text(
-            render_cli_job_detail(job)[:4000]
+        
+        tool = raw_args[1].lower()
+        prompt_text = " ".join(raw_args[2:])
+        
+        # Step 1: Acknowledge
+        status_msg = await update.message.reply_text(
+            f"[1/4] รับคำสั่งรัน CLI (One-shot Mode)\n"
+            f"Tool: {tool}\n"
+            f"กำลังตรวจสอบ CLI tool..."
         )
+        
+        try:
+            # Step 2: Validate
+            from engine.cli_bridge import _available_tool_or_raise
+            try:
+                tool_obj = _available_tool_or_raise(tool)
+                await status_msg.edit_text(
+                    f"[2/4] พบ CLI tool: {tool_obj.title}\n"
+                    f"กำลังรัน (อาจใช้เวลาสักครู่)..."
+                )
+            except FileNotFoundError as e:
+                await status_msg.edit_text(f"[ERROR] ไม่พบ CLI tool: {e}")
+                return
+            
+            # Step 3: Run CLI
+            await status_msg.edit_text(
+                f"[2/4] พบ CLI tool: {tool}\n"
+                f"[3/4] กำลังประมวลผล...\n"
+                f"⏳ รอ CLI ตอบกลับ (timeout 3 นาที)"
+            )
+            
+            job = run_cli_once(tool, prompt_text)
+            
+            # Step 4: Report result
+            job_status = job.get('status', 'unknown')
+            exit_code = job.get('exit_code', 'N/A')
+            
+            result_lines = [
+                f"[4/4] เสร็จสิ้น!",
+                f"",
+                f"Job: {job['id']}",
+                f"Tool: {job['tool']}",
+                f"Status: {job_status}",
+            ]
+            if exit_code != 'N/A':
+                result_lines.append(f"Exit code: {exit_code}")
+            if job.get('stdout_excerpt'):
+                result_lines.append(f"")
+                result_lines.append(f"Output:")
+                result_lines.append(f"```")
+                result_lines.append(job['stdout_excerpt'][:2000])
+                result_lines.append(f"```")
+            if job.get('stderr_excerpt'):
+                result_lines.append(f"")
+                result_lines.append(f"Stderr:")
+                result_lines.append(f"```")
+                result_lines.append(job['stderr_excerpt'][:500])
+                result_lines.append(f"```")
+            
+            await status_msg.edit_text("\n".join(result_lines), parse_mode="Markdown")
+            
+        except Exception as exc:
+            import traceback
+            error_detail = traceback.format_exc()
+            await status_msg.edit_text(
+                f"[ERROR] CLI run failed:\n"
+                f"{exc}\n\n"
+                f"รายละเอียด:\n"
+                f"```\n{error_detail[-500:]}\n```",
+                parse_mode="Markdown"
+            )
+            return
         return
     if action == "improve":
         proposal = create_cli_improvement_proposal()
