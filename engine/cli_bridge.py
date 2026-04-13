@@ -275,7 +275,26 @@ def _session_turn_command(tool: CLITool, session_id: str, prompt: str, cwd: Path
 
 
 def _run_subprocess(command: list[str], *, cwd: Path, timeout: int) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
+    try:
+        return subprocess.run(command, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
+    except Exception as e:
+        # Check if it's a PowerShell execution policy error
+        error_str = str(e).lower()
+        if "cannot be loaded because running scripts is disabled" in error_str or \
+           "unauthorizedaccess" in error_str or \
+           "execution policies" in error_str:
+            # Fallback: run through cmd.exe explicitly
+            cmd_line = " ".join(_windows_quote(str(part)) for part in command)
+            return subprocess.run(
+                ["cmd.exe", "/c", cmd_line],
+                cwd=str(cwd),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                encoding="utf-8",
+                errors="replace"
+            )
+        raise
 
 
 def _extract_gemini_session_id(output: str) -> str | None:
