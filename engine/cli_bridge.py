@@ -276,7 +276,15 @@ def _session_turn_command(tool: CLITool, session_id: str, prompt: str, cwd: Path
 
 def _run_subprocess(command: list[str], *, cwd: Path, timeout: int) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(command, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(
+            command,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace"
+        )
     except Exception as e:
         # Check if it's a PowerShell execution policy error
         error_str = str(e).lower()
@@ -417,7 +425,15 @@ def run_cli_once(tool_key: str, prompt: str, *, root: Path = ROOT, cwd: Path | N
     record = _cli_job_record(tool_key=tool.key, prompt=safe_prompt, mode="one_shot", root=root, cwd=cwd)
     command = _oneshot_command(tool, safe_prompt, cwd)
     try:
-        result = subprocess.run(command, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(
+            command,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace"
+        )
         stdout = result.stdout[-12000:]
         stderr = result.stderr[-4000:]
         output_path = root / "runtime" / "cli_jobs" / "outputs" / f"{record['id']}.txt"
