@@ -129,6 +129,50 @@ class BotInstanceLock:
         self._handle = None
 
 
+def _chunk_text(text: str, max_len: int = 4000) -> list[str]:
+    """Split text into chunks near newlines, falling back to hard split."""
+    chunks: list[str] = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= max_len:
+            chunks.append(remaining)
+            break
+        split_at = remaining.rfind("\n", 0, max_len)
+        if split_at <= 0:
+            split_at = max_len
+        chunks.append(remaining[:split_at])
+        remaining = remaining[split_at:].lstrip("\n")
+    return [c for c in chunks if c]
+
+
+async def send_long_text(message, text: str, parse_mode=None) -> None:
+    """Send long text as multiple messages."""
+    for chunk in _chunk_text(text):
+        await message.reply_text(chunk, parse_mode=parse_mode)
+
+
+async def edit_or_reply_long_text(message, text: str, parse_mode=None) -> None:
+    """Edit a message with the first chunk, then reply with remaining chunks."""
+    chunks = _chunk_text(text)
+    if not chunks:
+        return
+    await message.edit_text(chunks[0], parse_mode=parse_mode)
+    for chunk in chunks[1:]:
+        await message.reply_text(chunk, parse_mode=parse_mode)
+
+
+def _read_cli_output(job: dict) -> str:
+    """Read full CLI output from file if available, else stdout_excerpt."""
+    path = job.get("output_path")
+    if path and os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                return f.read()
+        except Exception:
+            pass
+    return job.get("stdout_excerpt", "")
+
+
 def _user_id(update: Update) -> int | None:
     return update.effective_user.id if update.effective_user else None
 
@@ -232,7 +276,7 @@ async def tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not missions:
         await update.message.reply_text("No tasks yet.")
         return
-    await update.message.reply_text("\n".join(f"{m['id']} | {m['project_name']} | {m['status']} | {m['description'][:80]}" for m in missions))
+    await send_long_text(update.message, "\n".join(f"{m['id']} | {m['project_name']} | {m['status']} | {m['description']}" for m in missions))
 
 
 async def taskdone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -371,13 +415,13 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     parts.append(render_cli_job_detail(get_cli_job(last_job_id)))
                 except Exception:
                     pass
-            await update.message.reply_text("\n".join(parts)[:4000])
+            await send_long_text(update.message, "\n".join(parts))
             return
         job = latest_cli_job()
         if not job:
             await update.message.reply_text("No CLI jobs yet.")
             return
-        await update.message.reply_text(render_cli_job_detail(job)[:4000])
+        await send_long_text(update.message, render_cli_job_detail(job))
         return
     if action == "session":
         ref = raw_args[1] if len(raw_args) > 1 else "latest"
@@ -389,7 +433,7 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not session:
             await update.message.reply_text("No CLI session yet.")
             return
-        await update.message.reply_text(render_cli_session_detail(session)[:4000])
+        await send_long_text(update.message, render_cli_session_detail(session))
         return
     if action == "mode":
         if len(raw_args) < 3:
@@ -400,7 +444,7 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as exc:
             await update.message.reply_text(f"CLI mode change failed: {exc}")
             return
-        await update.message.reply_text(render_cli_session_detail(session)[:4000])
+        await send_long_text(update.message, render_cli_session_detail(session))
         return
     if action == "approve":
         ref = raw_args[1] if len(raw_args) > 1 else "latest"
@@ -429,7 +473,7 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not diff:
             await update.message.reply_text("No diff captured for the latest CLI job.")
             return
-        await update.message.reply_text(f"Latest CLI diff:\n{diff}"[:4000])
+        await send_long_text(update.message, f"Latest CLI diff:\n{diff}")
         return
     if action == "start":
         if len(raw_args) < 3:
@@ -499,26 +543,28 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ]
             if exit_code != 'N/A':
                 result_lines.append(f"Exit code: {exit_code}")
-            if job.get('stdout_excerpt'):
+            stdout_text = _read_cli_output(job)
+            if stdout_text:
                 result_lines.append(f"")
                 result_lines.append(f"Output preview:")
                 result_lines.append(f"```")
-                result_lines.append(job['stdout_excerpt'][:1500])
+                result_lines.append(stdout_text)
                 result_lines.append(f"```")
             
             result_lines.append(f"")
             result_lines.append(f"Use /cli continue latest <prompt> for next step")
             
-            await status_msg.edit_text("\n".join(result_lines), parse_mode="Markdown")
+            await edit_or_reply_long_text(status_msg, "\n".join(result_lines), parse_mode="Markdown")
             
         except Exception as exc:
             import traceback
             error_detail = traceback.format_exc()
-            await status_msg.edit_text(
+            await edit_or_reply_long_text(
+                status_msg,
                 f"[ERROR] CLI session start failed:\n"
                 f"{exc}\n\n"
                 f"รายละเอียด:\n"
-                f"```\n{error_detail[-500:]}\n```",
+                f"```\n{error_detail}\n```",
                 parse_mode="Markdown"
             )
             return
@@ -566,26 +612,28 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 f"Session: {job.get('session_id', 'N/A')}",
                 f"Status: {job_status}",
             ]
-            if job.get('stdout_excerpt'):
+            stdout_text = _read_cli_output(job)
+            if stdout_text:
                 result_lines.append(f"")
                 result_lines.append(f"Output:")
                 result_lines.append(f"```")
-                result_lines.append(job['stdout_excerpt'][:2000])
+                result_lines.append(stdout_text)
                 result_lines.append(f"```")
             
             result_lines.append(f"")
             result_lines.append(f"Use /cli continue latest <prompt> for next step")
             
-            await status_msg.edit_text("\n".join(result_lines), parse_mode="Markdown")
+            await edit_or_reply_long_text(status_msg, "\n".join(result_lines), parse_mode="Markdown")
             
         except Exception as exc:
             import traceback
             error_detail = traceback.format_exc()
-            await status_msg.edit_text(
+            await edit_or_reply_long_text(
+                status_msg,
                 f"[ERROR] CLI continue failed:\n"
                 f"{exc}\n\n"
                 f"รายละเอียด:\n"
-                f"```\n{error_detail[-500:]}\n```",
+                f"```\n{error_detail}\n```",
                 parse_mode="Markdown"
             )
             return
@@ -616,7 +664,7 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as exc:
             await update.message.reply_text(f"CLI job lookup failed: {exc}")
             return
-        await update.message.reply_text(render_cli_job_detail(job)[:4000])
+        await send_long_text(update.message, render_cli_job_detail(job))
         return
     if action == "output":
         ref = raw_args[1] if len(raw_args) > 1 else "latest"
@@ -626,10 +674,8 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await update.message.reply_text("No CLI job found.")
                 return
             output = get_cli_output(job['id'])
-            await update.message.reply_text(
-                f"Output for {job['id']}:\n```\n{output[:3900]}\n```",
-                parse_mode="Markdown"
-            )
+            await update.message.reply_text(f"Output for {job['id']}:")
+            await send_long_text(update.message, f"```\n{output}\n```")
         except Exception as exc:
             await update.message.reply_text(f"CLI output fetch failed: {exc}")
         return
@@ -698,7 +744,7 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ]
             
             if initial_output and initial_output != "Output file not yet created. CLI may still be starting up.":
-                result_lines.append(initial_output[:2000])
+                result_lines.append(initial_output)
             else:
                 result_lines.append("(CLI ยังเริ่มต้น หรือยังไม่มี output)")
             
@@ -707,16 +753,17 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             result_lines.append(f"Window เปิดอยู่บน desktop ของคุณ")
             result_lines.append(f"ใช้ `/cli output` เพื่อดึง output ล่าสุด")
             
-            await status_msg.edit_text("\n".join(result_lines), parse_mode="Markdown")
+            await edit_or_reply_long_text(status_msg, "\n".join(result_lines), parse_mode="Markdown")
             
         except Exception as exc:
             import traceback
             error_detail = traceback.format_exc()
-            await status_msg.edit_text(
+            await edit_or_reply_long_text(
+                status_msg,
                 f"[ERROR] CLI open failed:\n"
                 f"{exc}\n\n"
                 f"รายละเอียด:\n"
-                f"```\n{error_detail[-500:]}\n```",
+                f"```\n{error_detail}\n```",
                 parse_mode="Markdown"
             )
             return
@@ -773,29 +820,32 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ]
             if exit_code != 'N/A':
                 result_lines.append(f"Exit code: {exit_code}")
-            if job.get('stdout_excerpt'):
+            stdout_text = _read_cli_output(job)
+            if stdout_text:
                 result_lines.append(f"")
                 result_lines.append(f"Output:")
                 result_lines.append(f"```")
-                result_lines.append(job['stdout_excerpt'][:2000])
+                result_lines.append(stdout_text)
                 result_lines.append(f"```")
-            if job.get('stderr_excerpt'):
+            stderr_text = job.get('stderr_excerpt', '')
+            if stderr_text:
                 result_lines.append(f"")
                 result_lines.append(f"Stderr:")
                 result_lines.append(f"```")
-                result_lines.append(job['stderr_excerpt'][:500])
+                result_lines.append(stderr_text)
                 result_lines.append(f"```")
             
-            await status_msg.edit_text("\n".join(result_lines), parse_mode="Markdown")
+            await edit_or_reply_long_text(status_msg, "\n".join(result_lines), parse_mode="Markdown")
             
         except Exception as exc:
             import traceback
             error_detail = traceback.format_exc()
-            await status_msg.edit_text(
+            await edit_or_reply_long_text(
+                status_msg,
                 f"[ERROR] CLI run failed:\n"
                 f"{exc}\n\n"
                 f"รายละเอียด:\n"
-                f"```\n{error_detail[-500:]}\n```",
+                f"```\n{error_detail}\n```",
                 parse_mode="Markdown"
             )
             return
@@ -832,15 +882,15 @@ async def learning(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("No pending knowledge gaps.")
             return
         lines = ["Pending Knowledge Gaps:", ""]
-        for gap in gaps[:10]:
+        for gap in gaps:
             status_emoji = "!!" if gap.get("is_important") else "--"
             lines.append(
                 f"{status_emoji} {gap['id']}\n"
-                f"   Q: {gap['question'][:80]}...\n"
+                f"   Q: {gap['question']}\n"
                 f"   Count: {gap.get('recurring_count', 1)} | "
                 f"Important: {gap.get('is_important', False)}"
             )
-        await update.message.reply_text("\n".join(lines))
+        await send_long_text(update.message, "\n".join(lines))
         return
     
     if action == "topics":
@@ -884,7 +934,7 @@ async def learning(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("Usage: /learning learn <topic/question>")
             return
         topic = " ".join(raw_args[1:])
-        await update.message.reply_text(f"Triggering immediate learning for: {topic[:100]}...")
+        await update.message.reply_text(f"Triggering immediate learning for: {topic}...")
         try:
             result = await asyncio.to_thread(trigger_immediate_learning, topic)
             if result.get("status") == "success":
@@ -930,7 +980,7 @@ async def taskstatus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 f"Status: {mission['status']}",
                 f"Risk: {mission['risk']}",
                 f"Plan: runtime/task_plans/{mission['id']}.md",
-                f"Description: {mission['description'][:500]}",
+                f"Description: {mission['description']}",
             ]
         )
     )
@@ -1008,16 +1058,16 @@ async def recall_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"No memory found for: {keyword}")
         return
     lines = [f"Recall results for '{keyword}':"]
-    for item in results[:5]:
+    for item in results:
         signals = []
         if item.get("matched_terms"):
-            signals.append(f"matched={', '.join(item['matched_terms'][:4])}")
+            signals.append(f"matched={', '.join(item['matched_terms'])}")
         if item.get("top_terms"):
-            signals.append(f"top={', '.join(item['top_terms'][:4])}")
-        lines.append(f"- {item['title']} | {item['path']} | score={item['score']}\n  {item['excerpt'][:220]}")
+            signals.append(f"top={', '.join(item['top_terms'])}")
+        lines.append(f"- {item['title']} | {item['path']} | score={item['score']}\n  {item['excerpt']}")
         if signals:
             lines.append(f"  {' | '.join(signals)}")
-    await update.message.reply_text("\n".join(lines))
+    await send_long_text(update.message, "\n".join(lines))
 
 
 async def phase3(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1045,7 +1095,7 @@ async def clusters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     await update.message.reply_text(
         "\n".join(
-            [f"{cluster['id']} | {cluster['label']} | members={cluster['member_count']}" for cluster in payload["clusters"][:5]]
+            [f"{cluster['id']} | {cluster['label']} | members={cluster['member_count']}" for cluster in payload["clusters"]]
         )
     )
 
@@ -1058,8 +1108,8 @@ async def decisions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "\n".join(
             [
-                f"{decision['id']} | confidence={decision['confidence']} | evidence={decision['evidence_count']}\n  {decision['summary'][:180]}"
-                for decision in items[:5]
+                f"{decision['id']} | confidence={decision['confidence']} | evidence={decision['evidence_count']}\n  {decision['summary']}"
+                for decision in items
             ]
         )
     )
@@ -1206,7 +1256,7 @@ async def research(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not record:
             await update.message.reply_text("No research result yet.")
             return
-        await update.message.reply_text(render_research_reply(record)[:4000])
+        await send_long_text(update.message, render_research_reply(record))
         return
     if action == "output":
         ref = raw_args[1] if len(raw_args) > 1 else "latest"
@@ -1218,7 +1268,7 @@ async def research(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not record:
             await update.message.reply_text("No research result yet.")
             return
-        await update.message.reply_text(render_research_output(record)[:4000])
+        await send_long_text(update.message, render_research_output(record))
         return
     if action == "artifact":
         ref = raw_args[1] if len(raw_args) > 1 else "latest"
@@ -1230,7 +1280,7 @@ async def research(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not record:
             await update.message.reply_text("No research result yet.")
             return
-        await update.message.reply_text(render_research_artifact(record)[:4000])
+        await send_long_text(update.message, render_research_artifact(record))
         return
     if action == "sessions":
         await update.message.reply_text(render_research_sessions_summary())
@@ -1245,7 +1295,7 @@ async def research(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not session:
             await update.message.reply_text("No research session yet.")
             return
-        await update.message.reply_text(render_research_session_detail(session)[:4000])
+        await send_long_text(update.message, render_research_session_detail(session))
         return
     if action == "start":
         query = " ".join(raw_args[1:]).strip()
@@ -1257,14 +1307,15 @@ async def research(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as exc:
             await update.message.reply_text(f"Research session start failed: {exc}")
             return
-        await update.message.reply_text(
+        await send_long_text(
+            update.message,
             "\n".join(
                 [
                     f"Started research session: {session['id']}",
                     f"First research: {record['id']}",
                     render_research_reply(record),
                 ]
-            )[:4000]
+            )
         )
         return
     if action == "continue":
@@ -1276,7 +1327,7 @@ async def research(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as exc:
             await update.message.reply_text(f"Research continue failed: {exc}")
             return
-        await update.message.reply_text(render_research_reply(record)[:4000])
+        await send_long_text(update.message, render_research_reply(record))
         return
     if action == "close":
         ref = raw_args[1] if len(raw_args) > 1 else "latest"
@@ -1362,7 +1413,7 @@ async def research(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as exc:
         await update.message.reply_text(f"Research failed unexpectedly: {exc}")
         return
-    await update.message.reply_text(render_research_reply(record)[:4000])
+    await send_long_text(update.message, render_research_reply(record))
 
 
 async def nightly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1383,7 +1434,7 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 [
                     f"Dream completed: {result['id']}",
                     f"Tools: {result['light_sleep']['tool_count']} | Repos: {result['light_sleep']['repo_count']} | Notes: {result['light_sleep']['note_count']}",
-                    f"Patterns: {', '.join(result['rem']['patterns'][:8]) or 'none'}",
+                    f"Patterns: {', '.join(result['rem']['patterns']) or 'none'}",
                     "A dream is a generated memory reflection, not a scheduled task.",
                 ]
             )
@@ -1480,7 +1531,7 @@ async def natural_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             except Exception as exc:
                 reply = f"Confirmation failed while executing the pending action: {exc}"
             append_conversation_turn(chat_id, role="assistant", content=reply, user_id=user_id, metadata={"confirmed_action": pending.get("action")})
-            await update.message.reply_text(reply[:4000])
+            await send_long_text(update.message, reply)
             return
         if decision == "cancel":
             clear_pending_confirmation(chat_id)
@@ -1560,7 +1611,7 @@ async def natural_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except Exception as exc:
         reply = f"Natural-language orchestration failed: {exc}"
     append_conversation_turn(chat_id, role="assistant", content=reply, user_id=user_id)
-    await update.message.reply_text(reply[:4000])
+    await send_long_text(update.message, reply)
 
 
 def _write_lifecycle(message: str) -> None:

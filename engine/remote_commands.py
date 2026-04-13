@@ -135,9 +135,6 @@ def cmd_ping(host: str = "127.0.0.1", count: int = 1) -> CommandResult:
 def cmd_system_info() -> CommandResult:
     """Get basic system information"""
     result = _run_safe_command(["systeminfo"], "systeminfo", timeout=30)
-    # Truncate to avoid huge outputs
-    if len(result.stdout) > 5000:
-        result.stdout = result.stdout[:5000] + "\n... [truncated]"
     return result
 
 
@@ -178,7 +175,7 @@ def cmd_list_directory(path: str = ".") -> CommandResult:
 
 
 @register_readonly_command("read_file")
-def cmd_read_file(path: str, max_lines: int = 100) -> CommandResult:
+def cmd_read_file(path: str, max_lines: int = 100_000) -> CommandResult:
     """Read contents of a file (safely)"""
     # Sanitize path
     safe_path = Path(path).resolve()
@@ -216,8 +213,6 @@ def cmd_read_file(path: str, max_lines: int = 100) -> CommandResult:
         with open(safe_path, "r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()[:max_lines]
             content = "".join(lines)
-            if len(f.readlines()) > max_lines:
-                content += "\n... [truncated]"
         
         return CommandResult(
             success=True,

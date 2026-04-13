@@ -352,7 +352,7 @@ def _git_diff_excerpt(cwd: Path) -> str:
         result = _run_subprocess(["git", "diff", "--stat"], cwd=cwd, timeout=30)
     except Exception:
         return ""
-    return result.stdout.strip()[:2000]
+    return result.stdout.strip()
 
 
 def open_cli_session(tool_key: str, prompt: str, *, root: Path = ROOT, cwd: Path | None = None) -> dict[str, Any]:
@@ -393,7 +393,7 @@ def open_cli_session(tool_key: str, prompt: str, *, root: Path = ROOT, cwd: Path
     return record
 
 
-def get_cli_output(job_id: str, *, root: Path = ROOT, max_chars: int = 4000) -> str:
+def get_cli_output(job_id: str, *, root: Path = ROOT, max_chars: int | None = None) -> str:
     """Get the current output of a CLI job from its output file."""
     try:
         job = get_cli_job(job_id, root=root)
@@ -408,8 +408,8 @@ def get_cli_output(job_id: str, *, root: Path = ROOT, max_chars: int = 4000) -> 
         # Read the output file
         content = output_path.read_text(encoding="utf-8", errors="replace")
         
-        # Return the last max_chars characters (most recent output)
-        if len(content) > max_chars:
+        # Return the last max_chars characters (most recent output) only if limited
+        if max_chars and len(content) > max_chars:
             return "..." + content[-(max_chars-3):]
         return content
     except FileNotFoundError:
@@ -434,8 +434,8 @@ def run_cli_once(tool_key: str, prompt: str, *, root: Path = ROOT, cwd: Path | N
             encoding="utf-8",
             errors="replace"
         )
-        stdout = result.stdout[-12000:]
-        stderr = result.stderr[-4000:]
+        stdout = result.stdout
+        stderr = result.stderr
         output_path = root / "runtime" / "cli_jobs" / "outputs" / f"{record['id']}.txt"
         output_path.write_text(stdout + ("\n\n[stderr]\n" + stderr if stderr else ""), encoding="utf-8")
         record.update(
@@ -443,8 +443,8 @@ def run_cli_once(tool_key: str, prompt: str, *, root: Path = ROOT, cwd: Path | N
                 "status": "completed" if result.returncode == 0 else "failed",
                 "exit_code": result.returncode,
                 "finished_at": now_iso(),
-                "stdout_excerpt": stdout[:2000],
-                "stderr_excerpt": stderr[:1000],
+                "stdout_excerpt": stdout,
+                "stderr_excerpt": stderr,
                 "output_path": str(output_path.relative_to(root)),
                 "command_preview": command,
             }
@@ -508,7 +508,7 @@ def render_cli_job_detail(job: dict[str, Any]) -> str:
         lines.append(" ".join(str(part) for part in job["command_preview"]))
     if job.get("stdout_excerpt"):
         lines.append("Output excerpt:")
-        lines.append(job["stdout_excerpt"][:1500])
+        lines.append(job["stdout_excerpt"])
     return "\n".join(lines)
 
 
@@ -530,7 +530,7 @@ def render_cli_session_detail(session: dict[str, Any]) -> str:
     if history:
         lines.append("Recent prompts:")
         for item in history[-3:]:
-            lines.append(f"- [{item['step']}] {item['prompt'][:120]}")
+            lines.append(f"- [{item['step']}] {item['prompt']}")
     return "\n".join(lines)
 
 
@@ -621,8 +621,8 @@ def _run_scripted_turn(tool: CLITool, session: dict[str, Any], prompt: str, *, r
             "status": "completed" if result.returncode == 0 else "failed",
             "exit_code": result.returncode,
             "finished_at": now_iso(),
-            "stdout_excerpt": final_message[:2000],
-            "stderr_excerpt": stderr[:1000],
+            "stdout_excerpt": final_message,
+            "stderr_excerpt": stderr,
             "output_path": str(output_path.relative_to(root)),
             "command_preview": command,
             "session_id": session["id"],

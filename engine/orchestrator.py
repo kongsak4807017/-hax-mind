@@ -420,7 +420,7 @@ def execute_orchestration_plan(plan: OrchestrationPlan, *, root: Path = ROOT) ->
         if job.get("output_path"):
             lines.append(f"Output: {job['output_path']}")
         if job.get("stdout_excerpt"):
-            lines.append(job["stdout_excerpt"][:1200])
+            lines.append(job["stdout_excerpt"])
         return "\n".join(lines)
     if action == "cli_improve":
         proposal = create_cli_improvement_proposal(root=root)

@@ -279,7 +279,7 @@ def fetch_page_text(url: str, *, timeout: int = 20) -> str:
             raw = response.read().decode("utf-8", errors="ignore")
     except Exception:
         return ""
-    return _strip_html(raw)[:6000]
+    return _strip_html(raw)
 
 
 def _local_summary_themes(results: list[dict[str, Any]]) -> list[str]:
@@ -321,7 +321,7 @@ def _local_summarize_research(
         if source_name:
             detail = f"{detail} ({source_name})"
         if description:
-            detail = f"{detail}: {description[:180]}"
+            detail = f"{detail}: {description}"
         key_points.append(detail)
 
     caveats = [fallback_reason]
@@ -354,7 +354,7 @@ def _summarize_research(query: str, results: list[dict[str, Any]], fetched_pages
             {
                 "title": item.get("title", ""),
                 "url": item.get("url", ""),
-                "content": item.get("content", "")[:3000],
+                "content": item.get("content", ""),
             }
             for item in fetched_pages
         ],
