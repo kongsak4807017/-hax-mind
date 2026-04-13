@@ -500,7 +500,9 @@ def execute_orchestration_plan(plan: OrchestrationPlan, *, root: Path = ROOT) ->
                 f"Dream: {dream_result['id']}",
             ]
         )
-    return plan.reply or "I couldn't map that request to a safe HAX-Mind action."
+    # Unknown action - HAX-Mind doesn't understand this request
+    # This will trigger auto-learning to capture the knowledge gap
+    return plan.reply or "I couldn't map that request to a safe HAX-Mind action. Please use /help to see available commands, or the system will learn from this gap."
 
 
 def route_message_to_plan(

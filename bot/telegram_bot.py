@@ -29,6 +29,13 @@ from engine.mission_engine import (
 from engine.picoclaw_manager import list_remote_jobs, picoclaw_plan, picoclaw_status, queue_proposal_for_remote_safe_execution, worker_status
 from engine.proposal_engine import list_proposals, update_proposal_status
 from engine.apply_engine import execute_proposal_safe
+from engine.auto_learning import (
+    handle_unknown_question,
+    nightly_learning_cycle,
+    get_learning_status,
+    render_learning_summary,
+    trigger_immediate_learning,
+)
 from engine.cli_bridge import (
     approve_cli_session,
     close_cli_session,
@@ -808,6 +815,104 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Usage: /cli tools | jobs | sessions | session <id|latest> | latest | output [job_id|latest] | status <job_id> | start <tool> [profile] <prompt> | continue <session_id|latest> <prompt> | mode <session_id|latest> <profile> | approve <session_id|latest> | diff | close <session_id|latest> | open <tool> <prompt> | run <tool> <prompt> | improve\nShort forms: /cli kimi <prompt>, /cli gemini <prompt>, /cli codex <prompt>, /cli omx <prompt>, /cli เปิด kimi <prompt>, /cli รัน gemini <prompt>")
 
 
+async def learning(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Auto-learning system commands"""
+    raw_args = list(context.args)
+    action = raw_args[0].lower() if raw_args else "status"
+    
+    if action == "status":
+        summary = render_learning_summary()
+        await update.message.reply_text(summary)
+        return
+    
+    if action == "queue":
+        from engine.auto_learning import get_pending_gaps
+        gaps = get_pending_gaps(limit=10)
+        if not gaps:
+            await update.message.reply_text("No pending knowledge gaps.")
+            return
+        lines = ["Pending Knowledge Gaps:", ""]
+        for gap in gaps[:10]:
+            status_emoji = "!!" if gap.get("is_important") else "--"
+            lines.append(
+                f"{status_emoji} {gap['id']}\n"
+                f"   Q: {gap['question'][:80]}...\n"
+                f"   Count: {gap.get('recurring_count', 1)} | "
+                f"Important: {gap.get('is_important', False)}"
+            )
+        await update.message.reply_text("\n".join(lines))
+        return
+    
+    if action == "topics":
+        from engine.auto_learning import get_recurring_topics
+        topics = get_recurring_topics(min_count=2)
+        if not topics:
+            await update.message.reply_text("No recurring topics detected yet.")
+            return
+        lines = ["Recurring Topics:", ""]
+        for topic in topics:
+            lines.append(f"- {topic['topic']}: {topic['count']} times")
+        await update.message.reply_text("\n".join(lines))
+        return
+    
+    if action == "now":
+        await update.message.reply_text("Starting nightly learning cycle...")
+        try:
+            result = await asyncio.to_thread(nightly_learning_cycle)
+            lines = [
+                "Learning cycle complete!",
+                "",
+                f"Recurring topics found: {len(result['recurring_topics'])}",
+                f"Important gaps: {result['important_gaps_count']}",
+                f"Proposals created: {len(result['proposals_created'])}",
+            ]
+            if result['proposals_created']:
+                lines.append("")
+                lines.append("New proposals:")
+                for p in result['proposals_created']:
+                    lines.append(f"- {p.get('proposal_id', 'unknown')}")
+            if result['errors']:
+                lines.append("")
+                lines.append(f"Errors: {len(result['errors'])}")
+            await update.message.reply_text("\n".join(lines))
+        except Exception as exc:
+            await update.message.reply_text(f"Learning cycle failed: {exc}")
+        return
+    
+    if action == "learn":
+        if len(raw_args) < 2:
+            await update.message.reply_text("Usage: /learning learn <topic/question>")
+            return
+        topic = " ".join(raw_args[1:])
+        await update.message.reply_text(f"Triggering immediate learning for: {topic[:100]}...")
+        try:
+            result = await asyncio.to_thread(trigger_immediate_learning, topic)
+            if result.get("status") == "success":
+                await update.message.reply_text(
+                    f"Learning complete!\n"
+                    f"Proposal: {result.get('proposal_id')}\n"
+                    f"Title: {result.get('proposal_title')}\n\n"
+                    f"Use `/approve {result.get('proposal_id')}` to review."
+                )
+            else:
+                await update.message.reply_text(
+                    f"Learning failed at stage: {result.get('stage', 'unknown')}\n"
+                    f"Error: {result.get('error', 'Unknown error')}"
+                )
+        except Exception as exc:
+            await update.message.reply_text(f"Learning error: {exc}")
+        return
+    
+    await update.message.reply_text(
+        "Usage: /learning status | queue | topics | now | learn <topic>\n"
+        "  status - Show learning system status\n"
+        "  queue  - Show pending knowledge gaps\n"
+        "  topics - Show recurring topics\n"
+        "  now    - Run nightly learning cycle now\n"
+        "  learn  - Trigger immediate learning for a topic"
+    )
+
+
 async def taskstatus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.args:
         await update.message.reply_text("Usage: /taskstatus <task_id>")
@@ -1412,6 +1517,44 @@ async def natural_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
         else:
             reply = await asyncio.to_thread(execute_orchestration_plan, plan)
+            
+            # Check if HAX-Mind couldn't understand the request (trigger auto-learning)
+            if "I couldn't map that request" in reply or plan.action in ("reply", "help"):
+                # Log to auto-learning system
+                learning_result = handle_unknown_question(
+                    question=text,
+                    context={"chat_id": chat_id, "plan_action": plan.action, "plan_reply": plan.reply}
+                )
+                
+                # If it's important or recurring, trigger immediate research
+                if learning_result.get("should_trigger_learning"):
+                    await update.message.reply_text(
+                        f"🧠 Auto-learning triggered!\n"
+                        f"This question has been asked {learning_result.get('recurring_count', 1)} time(s).\n"
+                        f"Gap ID: {learning_result['gap_id']}\n"
+                        f"Status: {learning_result['status']}"
+                    )
+                    
+                    # Trigger immediate learning for important questions
+                    if learning_result.get("is_important"):
+                        await update.message.reply_text("🔍 Researching this topic now...")
+                        try:
+                            research_result = await asyncio.to_thread(
+                                trigger_immediate_learning, text
+                            )
+                            if research_result.get("status") == "success":
+                                await update.message.reply_text(
+                                    f"✅ Auto-learning complete!\n"
+                                    f"Proposal: {research_result.get('proposal_id')}\n"
+                                    f"Title: {research_result.get('proposal_title')}\n\n"
+                                    f"Use `/approve {research_result.get('proposal_id')}` to review."
+                                )
+                            else:
+                                await update.message.reply_text(
+                                    f"⚠️ Research failed: {research_result.get('error', 'Unknown error')}"
+                                )
+                        except Exception as e:
+                            await update.message.reply_text(f"⚠️ Auto-learning error: {e}")
     except OpenRouterError as exc:
         reply = f"OpenRouter orchestration failed right now.\nError: {exc}"
     except Exception as exc:
@@ -1474,6 +1617,7 @@ def main() -> None:
     app.add_handler(CommandHandler("taskdone", require_auth(taskdone)))
     app.add_handler(CommandHandler("picoclaw", require_auth(picoclaw)))
     app.add_handler(CommandHandler("cli", require_auth(cli)))
+    app.add_handler(CommandHandler("learning", require_auth(learning)))
     app.add_handler(CommandHandler("propose", require_auth(propose)))
     app.add_handler(CommandHandler("execute", require_auth(execute)))
     app.add_handler(CommandHandler("memory", require_auth(memory)))
