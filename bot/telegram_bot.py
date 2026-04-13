@@ -35,6 +35,7 @@ from engine.cli_bridge import (
     create_cli_improvement_proposal,
     continue_cli_session,
     get_cli_job,
+    get_cli_output,
     get_cli_session,
     latest_cli_session,
     latest_cli_job,
@@ -50,6 +51,26 @@ from engine.cli_bridge import (
 )
 from engine.project_manager import list_projects, register_project
 from engine.repo_analyzer import analyze_github_repo_and_dream
+from engine.research_engine import (
+    approve_research_proposal,
+    ResearchError,
+    close_research_session,
+    continue_research_session,
+    create_proposal_from_research,
+    create_task_from_research,
+    get_research,
+    get_research_session,
+    latest_research,
+    latest_research_session,
+    list_research_sessions,
+    render_research_artifact,
+    render_research_output,
+    render_research_reply,
+    render_research_session_detail,
+    render_research_sessions_summary,
+    run_research,
+    start_research_session,
+)
 from engine.restart_manager import request_bot_restart
 from engine.research_team import generate_team_brief
 from engine.rollback_engine import rollback_proposal
@@ -146,7 +167,7 @@ async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "HAX-Mind ready. Commands: /whoami /auth /status /restart /project add|list /task <project> <work> /tasks /taskstatus <id> /propose <task_id> /approve <proposal_id> /execute <proposal_id> /picoclaw status|worker status|plan|jobs|queue <approved_proposal_id> /cli tools|jobs|sessions|session <id|latest>|latest|status <job_id>|start <tool> [profile] <prompt>|continue <session_id|latest> <prompt>|mode <session_id|latest> <profile>|approve <session_id|latest>|diff|close <session_id|latest>|open <tool> <prompt>|run <tool> <prompt>|improve /memory /recall <query> /phase3 now /clusters /decisions /team <topic> | /team plan|list|status <task_id> /dream now|latest|explain [dream_id|latest]|task <project_id> [dream_id|latest] /analyze repo <url> /report\nStructured task syntax for guarded real apply: /task <project_id> append|replace|create|delete <path> :: <content>"
+        "HAX-Mind ready. Commands: /whoami /auth /status /restart /research <query>|latest|output [research_id|latest]|artifact [research_id|latest]|sessions|session <id|latest>|start <query>|continue <session_id|latest> <query>|close <session_id|latest>|task <project_id> [research_id|latest]|propose [research_id|latest]|approve [research_id|latest] /project add|list /task <project> <work> /tasks /taskstatus <id> /propose <task_id> /approve <proposal_id> /execute <proposal_id> /picoclaw status|worker status|plan|jobs|queue <approved_proposal_id> /cli tools|jobs|sessions|session <id|latest>|latest|output [job_id|latest]|status <job_id>|start <tool> [profile] <prompt>|continue <session_id|latest> <prompt>|mode <session_id|latest> <profile>|approve <session_id|latest>|diff|close <session_id|latest>|open <tool> <prompt>|run <tool> <prompt>|improve /memory /recall <query> /phase3 now /clusters /decisions /team <topic> | /team plan|list|status <task_id> /dream now|latest|explain [dream_id|latest]|task <project_id> [dream_id|latest] /analyze repo <url> /report\nStructured task syntax for guarded real apply: /task <project_id> append|replace|create|delete <path> :: <content>"
     )
 
 
@@ -478,6 +499,21 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         await update.message.reply_text(render_cli_job_detail(job)[:4000])
         return
+    if action == "output":
+        ref = raw_args[1] if len(raw_args) > 1 else "latest"
+        try:
+            job = latest_cli_job() if ref == "latest" else get_cli_job(ref)
+            if not job:
+                await update.message.reply_text("No CLI job found.")
+                return
+            output = get_cli_output(job['id'])
+            await update.message.reply_text(
+                f"Output for {job['id']}:\n```\n{output[:3900]}\n```",
+                parse_mode="Markdown"
+            )
+        except Exception as exc:
+            await update.message.reply_text(f"CLI output fetch failed: {exc}")
+        return
     if action == "open":
         if len(raw_args) >= 2 and raw_args[0].lower() in {"เปิด", "open"}:
             raw_args = ["open", *raw_args[1:]]
@@ -489,8 +525,18 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as exc:
             await update.message.reply_text(f"CLI open failed: {exc}")
             return
+        # Wait a moment for output to be generated
+        import asyncio
+        await asyncio.sleep(3)
+        initial_output = get_cli_output(job['id'])
         await update.message.reply_text(
-            f"Opened {job['tool']} interactive CLI.\nJob: {job['id']}\nPrompt: {job['prompt'][:200]}\nUse /cli latest for proof."
+            f"Opened {job['tool']} interactive CLI.\n"
+            f"Job: {job['id']}\n"
+            f"Prompt: {job['prompt'][:200]}\n\n"
+            f"Initial output:\n```\n{initial_output[:3000]}\n```\n\n"
+            f"CLI window is open on your desktop.\n"
+            f"Use /cli output to get latest output.",
+            parse_mode="Markdown"
         )
         return
     if action == "run":
@@ -520,7 +566,7 @@ async def cli(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         )
         return
-    await update.message.reply_text("Usage: /cli tools | jobs | sessions | session <id|latest> | latest | status <job_id> | start <tool> [profile] <prompt> | continue <session_id|latest> <prompt> | mode <session_id|latest> <profile> | approve <session_id|latest> | diff | close <session_id|latest> | open <tool> <prompt> | run <tool> <prompt> | improve\nShort forms: /cli kimi <prompt>, /cli gemini <prompt>, /cli codex <prompt>, /cli omx <prompt>, /cli เปิด kimi <prompt>, /cli รัน gemini <prompt>")
+    await update.message.reply_text("Usage: /cli tools | jobs | sessions | session <id|latest> | latest | output [job_id|latest] | status <job_id> | start <tool> [profile] <prompt> | continue <session_id|latest> <prompt> | mode <session_id|latest> <profile> | approve <session_id|latest> | diff | close <session_id|latest> | open <tool> <prompt> | run <tool> <prompt> | improve\nShort forms: /cli kimi <prompt>, /cli gemini <prompt>, /cli codex <prompt>, /cli omx <prompt>, /cli เปิด kimi <prompt>, /cli รัน gemini <prompt>")
 
 
 async def taskstatus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -808,6 +854,173 @@ async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def research(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    raw_args = list(context.args)
+    action = raw_args[0].lower() if raw_args else "run"
+    if action == "latest":
+        record = latest_research()
+        if not record:
+            await update.message.reply_text("No research result yet.")
+            return
+        await update.message.reply_text(render_research_reply(record)[:4000])
+        return
+    if action == "output":
+        ref = raw_args[1] if len(raw_args) > 1 else "latest"
+        try:
+            record = latest_research() if ref == "latest" else get_research(ref)
+        except Exception as exc:
+            await update.message.reply_text(f"Research output lookup failed: {exc}")
+            return
+        if not record:
+            await update.message.reply_text("No research result yet.")
+            return
+        await update.message.reply_text(render_research_output(record)[:4000])
+        return
+    if action == "artifact":
+        ref = raw_args[1] if len(raw_args) > 1 else "latest"
+        try:
+            record = latest_research() if ref == "latest" else get_research(ref)
+        except Exception as exc:
+            await update.message.reply_text(f"Research artifact lookup failed: {exc}")
+            return
+        if not record:
+            await update.message.reply_text("No research result yet.")
+            return
+        await update.message.reply_text(render_research_artifact(record)[:4000])
+        return
+    if action == "sessions":
+        await update.message.reply_text(render_research_sessions_summary())
+        return
+    if action == "session":
+        ref = raw_args[1] if len(raw_args) > 1 else "latest"
+        try:
+            session = latest_research_session() if ref == "latest" else get_research_session(ref)
+        except Exception as exc:
+            await update.message.reply_text(f"Research session lookup failed: {exc}")
+            return
+        if not session:
+            await update.message.reply_text("No research session yet.")
+            return
+        await update.message.reply_text(render_research_session_detail(session)[:4000])
+        return
+    if action == "start":
+        query = " ".join(raw_args[1:]).strip()
+        if not query:
+            await update.message.reply_text("Usage: /research start <query>")
+            return
+        try:
+            session, record = await asyncio.to_thread(start_research_session, query)
+        except Exception as exc:
+            await update.message.reply_text(f"Research session start failed: {exc}")
+            return
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    f"Started research session: {session['id']}",
+                    f"First research: {record['id']}",
+                    render_research_reply(record),
+                ]
+            )[:4000]
+        )
+        return
+    if action == "continue":
+        if len(raw_args) < 3:
+            await update.message.reply_text("Usage: /research continue <session_id|latest> <query>")
+            return
+        try:
+            record = await asyncio.to_thread(continue_research_session, raw_args[1], " ".join(raw_args[2:]))
+        except Exception as exc:
+            await update.message.reply_text(f"Research continue failed: {exc}")
+            return
+        await update.message.reply_text(render_research_reply(record)[:4000])
+        return
+    if action == "close":
+        ref = raw_args[1] if len(raw_args) > 1 else "latest"
+        try:
+            session = close_research_session(ref)
+        except Exception as exc:
+            await update.message.reply_text(f"Research close failed: {exc}")
+            return
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    f"Closed research session: {session['id']}",
+                    f"Steps: {session.get('step_count', 0)}",
+                ]
+            )
+        )
+        return
+    if action == "task":
+        if len(raw_args) < 2:
+            await update.message.reply_text("Usage: /research task <project_id> [research_id|latest]")
+            return
+        project_id = raw_args[1]
+        research_id = raw_args[2] if len(raw_args) > 2 else "latest"
+        try:
+            mission = create_task_from_research(project_id=project_id, research_id=research_id)
+        except Exception as exc:
+            await update.message.reply_text(f"Research to task failed: {exc}")
+            return
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    f"Task created from research: {mission['id']}",
+                    f"Project: {mission['project_name']}",
+                    f"Source research: {mission.get('source_research_id', research_id)}",
+                ]
+            )
+        )
+        return
+    if action == "propose":
+        research_id = raw_args[1] if len(raw_args) > 1 else "latest"
+        try:
+            proposal = create_proposal_from_research(research_id=research_id)
+        except Exception as exc:
+            await update.message.reply_text(f"Research to proposal failed: {exc}")
+            return
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    f"Proposal created from research: {proposal['id']}",
+                    f"Title: {proposal['title']}",
+                    f"Risk: {proposal['risk']}",
+                ]
+            )
+        )
+        return
+    if action == "approve":
+        research_id = raw_args[1] if len(raw_args) > 1 else "latest"
+        try:
+            proposal = approve_research_proposal(research_id=research_id)
+        except Exception as exc:
+            await update.message.reply_text(f"Research approve failed: {exc}")
+            return
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    f"Research proposal approved: {proposal['id']}",
+                    f"Title: {proposal['title']}",
+                    f"Status: {proposal['status']}",
+                ]
+            )
+        )
+        return
+
+    query = " ".join(raw_args).strip()
+    if not query:
+        await update.message.reply_text("Usage: /research <query> | /research latest | /research output [research_id|latest] | /research artifact [research_id|latest] | /research sessions | /research session <id|latest> | /research start <query> | /research continue <session_id|latest> <query> | /research close <session_id|latest> | /research task <project_id> [research_id|latest] | /research propose [research_id|latest] | /research approve [research_id|latest]")
+        return
+    try:
+        record = await asyncio.to_thread(run_research, query)
+    except ResearchError as exc:
+        await update.message.reply_text(f"Research failed: {exc}")
+        return
+    except Exception as exc:
+        await update.message.reply_text(f"Research failed unexpectedly: {exc}")
+        return
+    await update.message.reply_text(render_research_reply(record)[:4000])
+
+
 async def nightly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if context.args and context.args[0].lower() != "now":
         await update.message.reply_text("Usage: /nightly now")
@@ -1014,6 +1227,7 @@ def main() -> None:
     app.add_handler(CommandHandler("status", require_auth(status)))
     app.add_handler(CommandHandler("health", require_auth(health)))
     app.add_handler(CommandHandler("restart", require_auth(restart)))
+    app.add_handler(CommandHandler("research", require_auth(research)))
     app.add_handler(CommandHandler("project", require_auth(project)))
     app.add_handler(CommandHandler("task", require_auth(task)))
     app.add_handler(CommandHandler("tasks", require_auth(tasks)))

@@ -34,6 +34,7 @@ from engine.openrouter_client import OpenRouterError, chat_completion, extract_m
 from engine.project_manager import list_projects, register_project
 from engine.proposal_engine import get_proposal, list_proposals, update_proposal_status
 from engine.repo_analyzer import analyze_github_repo_and_dream
+from engine.research_engine import render_research_reply, run_research
 from engine.rollback_engine import rollback_proposal
 from engine.utils import ROOT
 
@@ -104,7 +105,7 @@ def _build_system_prompt(root: Path, conversation_history: list[dict[str, str]] 
         '"path_or_repo": string, "task_id": string, "description": string, "proposal_id": string, "repo_target": string, "dream_id": string, "cli_tool": string, "cli_job_id": string}.\n'
         "Allowed actions: reply, help, status, list_projects, create_project, list_tasks, task_status, "
         "create_task, create_proposal, list_proposals, approve_proposal, reject_proposal, execute_proposal, "
-        "rollback_proposal, morning_report, analyze_repo, explain_dream, create_task_from_dream, "
+        "rollback_proposal, morning_report, analyze_repo, explain_dream, create_task_from_dream, research, "
         "list_cli_tools, list_cli_jobs, list_cli_sessions, cli_job_status, cli_session_status, start_cli_session, continue_cli_session, close_cli_session, open_cli_session, run_cli_once, cli_improve.\n"
         "Rules:\n"
         "- Use current ids from context when possible.\n"
@@ -163,6 +164,12 @@ def _detect_cli_intent(user_message: str) -> dict[str, Any] | None:
         return {"action": "list_cli_sessions", "reply": "Showing CLI sessions."}
     if any(token in lowered for token in ["latest cli", "proof", "\u0e2b\u0e25\u0e31\u0e01\u0e10\u0e32\u0e19", "job \u0e25\u0e48\u0e32\u0e2a\u0e38\u0e14"]):
         return {"action": "cli_job_status", "reply": "Showing the latest CLI proof."}
+    if any(token in lowered for token in ["ค้นหา", "หาข้อมูล", "วิจัย", "research", "search web", "ข่าวล่าสุด", "latest news", "ค้นเว็บ"]):
+        return {
+            "action": "research",
+            "reply": "Searching external sources now.",
+            "description": text,
+        }
     if tool is None:
         return None
     if any(token in lowered for token in ["continue", "\u0e2a\u0e48\u0e07\u0e15\u0e48\u0e2d", "step \u0e15\u0e48\u0e2d", "\u0e15\u0e48\u0e2d\u0e40\u0e25\u0e22"]) and tool in {"kimi", "gemini", "codex"}:
@@ -292,6 +299,12 @@ def execute_orchestration_plan(plan: OrchestrationPlan, *, root: Path = ROOT) ->
         )
     if action == "status":
         return render_local_health_summary()
+    if action == "research":
+        query = plan.description or plan.reply
+        if not query:
+            return "Please tell me what topic you want researched."
+        record = run_research(query, root=root)
+        return render_research_reply(record)
     if action == "list_cli_tools":
         return render_cli_tools_summary()
     if action == "list_cli_jobs":

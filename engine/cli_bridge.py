@@ -208,20 +208,50 @@ def _windows_quote(arg: str) -> str:
     return subprocess.list2cmdline([arg])
 
 
-def _write_windows_launcher(*, record: dict[str, Any], command: list[str], root: Path) -> Path:
+def _write_windows_launcher(*, record: dict[str, Any], command: list[str], root: Path, output_path: Path | None = None) -> Path:
     launcher_path = root / "runtime" / "cli_jobs" / "launchers" / f"{record['id']}.cmd"
     command_line = " ".join(_windows_quote(str(part)) for part in command)
-    content = "\r\n".join(
-        [
-            "@echo off",
-            "setlocal",
-            f'cd /d "{record["cwd"]}"',
-            command_line,
-            "echo.",
-            "echo [HAX-Mind] CLI session finished. Press any key to close this window.",
-            "pause >nul",
-        ]
-    ) + "\r\n"
+    
+    # If output_path is provided, redirect output to file while also displaying on console
+    if output_path:
+        # Create a wrapper that runs command, displays output, and saves to file
+        # Using cmd to redirect stderr to stdout, then use tee-like behavior
+        content = "\r\n".join(
+            [
+                "@echo off",
+                "chcp 65001 >nul",
+                "setlocal EnableDelayedExpansion",
+                f'cd /d "{record["cwd"]}"',
+                "echo [HAX-Mind] Starting CLI session...",
+                f'echo [HAX-Mind] Output will be saved to: {output_path}',
+                "echo.",
+                # Run command and redirect both stdout and stderr to file
+                f'{command_line} > "{output_path}" 2>&1',
+                "set EXIT_CODE=!ERRORLEVEL!",
+                "echo.",
+                "echo [HAX-Mind] CLI session completed. Output:",
+                "echo ========================================",
+                # Display the output file content
+                f'type "{output_path}"',
+                "echo ========================================",
+                "echo.",
+                "echo [HAX-Mind] CLI session finished. Press any key to close this window.",
+                "pause >nul",
+            ]
+        ) + "\r\n"
+    else:
+        content = "\r\n".join(
+            [
+                "@echo off",
+                "chcp 65001 >nul",
+                "setlocal",
+                f'cd /d "{record["cwd"]}"',
+                command_line,
+                "echo.",
+                "echo [HAX-Mind] CLI session finished. Press any key to close this window.",
+                "pause >nul",
+            ]
+        ) + "\r\n"
     launcher_path.write_text(content, encoding="utf-8")
     return launcher_path
 
@@ -304,8 +334,12 @@ def open_cli_session(tool_key: str, prompt: str, *, root: Path = ROOT, cwd: Path
     cwd = (cwd or root).resolve()
     record = _cli_job_record(tool_key=tool.key, prompt=safe_prompt, mode="interactive", root=root, cwd=cwd)
     command = _interactive_command(tool, safe_prompt, cwd)
+    
+    # Create output file for capturing CLI output
+    output_path = root / "runtime" / "cli_jobs" / "outputs" / f"{record['id']}.txt"
+    
     if os.name == "nt":
-        launcher_path = _write_windows_launcher(record=record, command=command, root=root)
+        launcher_path = _write_windows_launcher(record=record, command=command, root=root, output_path=output_path)
         popen_command = ["cmd.exe", "/k", str(launcher_path)]
         subprocess.Popen(
             popen_command,
@@ -314,13 +348,47 @@ def open_cli_session(tool_key: str, prompt: str, *, root: Path = ROOT, cwd: Path
         )
         record["launcher_path"] = str(launcher_path.relative_to(root))
     else:
-        subprocess.Popen(command, cwd=str(cwd))
+        # For non-Windows, use tee if available
+        with open(output_path, "w", encoding="utf-8") as out_f:
+            subprocess.Popen(
+                command,
+                cwd=str(cwd),
+                stdout=out_f,
+                stderr=subprocess.STDOUT,
+            )
+    
     record["status"] = "opened"
     record["opened_at"] = now_iso()
     record["command_preview"] = command
+    record["output_path"] = str(output_path.relative_to(root))
     _save_job(record, root=root)
     log_event("cli_job", f"Opened interactive {tool.key} CLI job {record['id']}", topic="cli", importance="high")
     return record
+
+
+def get_cli_output(job_id: str, *, root: Path = ROOT, max_chars: int = 4000) -> str:
+    """Get the current output of a CLI job from its output file."""
+    try:
+        job = get_cli_job(job_id, root=root)
+        output_path_str = job.get("output_path")
+        if not output_path_str:
+            return "No output file configured for this job."
+        
+        output_path = root / output_path_str
+        if not output_path.exists():
+            return "Output file not yet created. CLI may still be starting up."
+        
+        # Read the output file
+        content = output_path.read_text(encoding="utf-8", errors="replace")
+        
+        # Return the last max_chars characters (most recent output)
+        if len(content) > max_chars:
+            return "..." + content[-(max_chars-3):]
+        return content
+    except FileNotFoundError:
+        return f"CLI job not found: {job_id}"
+    except Exception as e:
+        return f"Error reading output: {e}"
 
 
 def run_cli_once(tool_key: str, prompt: str, *, root: Path = ROOT, cwd: Path | None = None, timeout: int = 180) -> dict[str, Any]:

@@ -238,6 +238,18 @@ If you want the hidden/background recovery path instead, keep using:
 /auth
 /status
 /restart
+/research <query>
+/research latest
+/research output [research_id|latest]
+/research artifact [research_id|latest]
+/research sessions
+/research session <id|latest>
+/research start <query>
+/research continue <session_id|latest> <query>
+/research close <session_id|latest>
+/research task <project_id> [research_id|latest]
+/research propose [research_id|latest]
+/research approve [research_id|latest]
 /health
 /project add <name> <path_or_repo>
 /project list
@@ -284,6 +296,51 @@ analyze repo microsoft/TypeScript
 ```
 
 The OpenRouter router maps these requests onto the existing guarded HAX-Mind engine actions.
+
+### External research
+
+If `BRAVE_SEARCH_API_KEY` and/or `NEWS_API` are configured, HAX-Mind can search the web and summarize findings. If `OPENROUTER_API_KEY` is missing, it falls back to a local summary:
+
+```text
+/research latest news about OpenRouter free models
+/research compare Brave Search API and Tavily for agent workflows
+/research latest
+/research output latest
+/research artifact latest
+/research start compare Brave Search API and Tavily for agent workflows
+/research continue latest now focus on pricing and rate limits
+/research task haxmind
+/research propose latest
+/research approve latest
+```
+
+The research pipeline:
+
+- searches Brave Search
+- routes news-style queries into NewsAPI `everything` or `top-headlines`
+- supports country/category-aware headline queries such as `top technology headlines in thailand`
+- fetches top page content
+- summarizes with OpenRouter when available
+- falls back to a local snippet-based summary when OpenRouter is unavailable
+- returns source links
+- saves the result into canonical memory
+
+Research can also be run as a tracked multi-step session:
+
+```text
+/research start compare Brave Search API and Tavily for agent workflows
+/research continue latest now focus on pricing and rate limits
+/research session latest
+/research close latest
+```
+
+You can turn the latest research into work:
+
+```text
+/research task haxmind
+/research propose latest
+/research approve latest
+```
 
 ### Local CLI delegation from Telegram
 

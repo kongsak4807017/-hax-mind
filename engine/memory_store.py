@@ -26,6 +26,7 @@ def initialize_memory_dirs(root: Path = ROOT) -> None:
         base / "canonical" / "dreams",
         base / "canonical" / "decisions",
         base / "canonical" / "repo_knowledge",
+        base / "canonical" / "research",
         base / "canonical" / "design_patterns",
         base / "indexes",
         root / "workspace" / "projects",

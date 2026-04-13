@@ -146,3 +146,12 @@ def test_route_message_to_plan_shortcuts_kimi_continue(tmp_path: Path) -> None:
 
     assert plan.action == "continue_cli_session"
     assert plan.cli_tool == "kimi"
+
+
+def test_route_message_to_plan_shortcuts_research(tmp_path: Path) -> None:
+    register_project("HAXMind", str(tmp_path), root=tmp_path)
+
+    plan = route_message_to_plan("search latest news about OpenRouter free models", root=tmp_path)
+
+    assert plan.action == "research"
+    assert "OpenRouter" in plan.description
